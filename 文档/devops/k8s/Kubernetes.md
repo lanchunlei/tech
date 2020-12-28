@@ -194,7 +194,9 @@ containerd底层有containerd shim模块，其类似于一个守护进程，这�
 
 * VM复用Hypervisor虚拟化技术模拟CPU、内存等硬件资源，就样这可以在宿主机上建立一个Guest OS，每一个Guest OS都有一个独立的内核，比如Ubuntu、CentOS等；
 * 容器是针对进程的，无需Guest OS，只需要一个独立的文件系统提供其所需的文件集合即可；
-* 容器启动时间习快于VM，所需磁盘空间小于VM，但是隔离效果要比VM差很多。
+* 容器启动时间习快于VM，所需磁盘空间小于VM，但是隔离效果要比VM差很多；
+* 管理VM=管理基础设施；管理容器=直接管理应用本身(容器也是一个进程)；
+* **容器之间是被Linux Namespace和cgroups隔离开**。
 
 
 
@@ -210,31 +212,51 @@ containerd底层有containerd shim模块，其类似于一个守护进程，这�
 
 <img src="Kubernetes.assets/image-20201130063949056.png" alt="image-20201130063949056" style="zoom: 50%;" />
 
-* APIServer: 所有服务访问统一入口，并提供认证、授权、访问控制、API注册和发现等机制；
-* Controller-Manager: 维护集群的状态，比如故障检测、自动扩展、滚动更新等；
-* Scheduler: 负责资源的调度，按照预定的调度策略将Pod调度到相应的机器上；
+* APIServer: **所有服务访问统一入口，并提供认证、授权、访问控制、API注册和发现等机制**；
+
+  所有组件相互之间不直接通信，而是通过ApiServer通信；
+
+  <img src="Kubernetes.assets/image-20201223061157495.png" alt="image-20201223061157495" style="zoom:50%;" />
+
+* Controller-Manager: 维护集群的状态，比如故障检测、自动扩展、滚动更新等；**只有一个Active,可热备**
+
+* Scheduler: 负责资源的调度，按照预定的调度策略将Pod调度到相应的机器上；**只有一个Active,可热备**
+
 * Etcd: 键值对数据库，储存K8s集群所有重要信息(持久化)，保存了整个集群的状态；
-* Kubelet: 直接跟容器引擎交互，实现容器的生命周期管理；同时也负责Volume(CVI)和网络(CNI)的管理;
+
+* Kubelet: **直接跟容器引擎交互，实现容器的生命周期管理**；同时也负责Volume(CVI)和网络(CNI)的管理;
+
 * Container runtime: 负责镜像管理以及Pod和容器的真正运行(CRI);
+
 * kube-proxy: 负责写入规则至Iptables(IPVS)，实现服务映射访问（为service提供cluster内部的服务发现和负载均衡）；
+
 * CoreDNS：可以为集群中的svc创建一个域名IP的对应关系解析；
+
 * DashBoard: k8s B/S结构访问体系；
+
 * Ingress Controller: 官方只能实现四层代理，Ingress可以实现七层代理；
+
 * Federation: 提供一个可以跨集群中心多K8s统一管理功能；
+
 * Prometheus: 提供k8s集群监控能力；
+
 * EFK: 提供K8S集群日志统一分析接入平台；
 
 
 
 ## 3. 基础概念
 
-#### Namespace
+```
+Kubernetes就是云时代的【操作系统】，容器=【进程】(Linux线程)，Pod=【进程组】(Linux线程组)，容器镜像就是：这个操作系统的【软件安装包】。
+```
+
+### Namespace
 
 ```
 namespace是对一组资源和对象的抽象集合，比如可以用来将系统内部的对象划分为不同的项目组或用户组。常见的pods, services, replication controllers和deployments等都是属于某一个namespace的(默认是default)，而node, persistentVolumes等则不属于任何namespace。
 ```
 
-#### Label
+### Label
 
 ```
 Label是识别kubernetes对象的标签，以key/value的方式附加到对象上。Label定义好后其他对象可以使用Label Selector来选择一组相同label的对象(比如ReplicaSet和Service用label来选择一组Pod)，Label Selector支持以下几种方式：
@@ -243,30 +265,128 @@ Label是识别kubernetes对象的标签，以key/value的方式附加到对象�
  * 多个label(它们之间是AND关系)，如 app=nginx, env=test
 ```
 
-
-
-#### Annotations
+### Annotations
 
 ```
 Annotations是key/value形式附加于对象的注解。不同于Labels用于标志和选择对象，Annotations则是用来记录一些附加信息，用来辅助应用部署、安全策略以及调度策略等。比如deployment使用annotations来记录rolling update的状态。
 ```
 
+### pod
+
+<img src="Kubernetes.assets/image-20201223071805892.png" alt="image-20201223071805892" style="zoom:50%;" />
+
+#### 为什么需要Pod
+
+**来自Google Borg的思考**
+
+```
+Google工程师发现，在Borg项目部署的应用，往往都存在着类似于【进程和进程组】的关系，更具体的说，就是这些应用之间有着密切的协作关系，便利它们必须部署在同一台机器上并且共享某些信息。
+```
+
+#### 为什么Pod必须是原子调度单位
+
+<img src="Kubernetes.assets/image-20201223072423060.png" alt="image-20201223072423060" style="zoom:50%;" />
+
+#### 再次理解Pod
+
+<img src="Kubernetes.assets/image-20201223073250459.png" alt="image-20201223073250459" style="zoom:50%;" />
+
+#### Pod的实现机制
+
+**Pod要解决的问题**
+
+* pod内部多个容器之间最高效的共享某些资源和数据；
+
+  容器间原本是被Linux Namespace和cgroups隔离开的。
+
+  * 共享网络
+
+    <img src="Kubernetes.assets/image-20201223074150464.png" alt="image-20201223074150464" style="zoom: 50%;" />
+
+  1. 多个容器通过Infra Container（pause）的方式共享同一个Network Namespace;
+  2. 不同容器之间直接使用localhost进行通信；
+  3. 不同容器看到的网络设备跟Infra容器看到的完全一样；
+  4. 一个Pod只有一个IP地址，也就是这个pod的network namespace对应的IP地址；
+  5. 整个Pod的生命周期跟Infra容器一致，而与容器A和B无头。
+
+  
+
+  * 共享存储
+
+    ```
+    apiVersion: v1
+    kind: Pod
+      name: two-containers
+    spec:
+      restartPolicy: Never
+      volumes:
+      - name: shared-data # shared-data对应在宿主机上的目录，会被同时绑定挂载进两个容器当中
+        hostPath:
+          path: /data 
+      containers:
+      - name: nginx-container
+        image: nginx
+        volumeMounts:
+        - name: shared-data
+          mountPath: /usr/share/nginx/html
+      - name: debian-container
+        image: debian
+        volumeMounts:
+        - name: shared-data
+          mountPath: /pod-data
+        command: ["/bin/sh"]
+        args: ["-c", "echo Hello from the debian container > /pod-data/index.html"]
+      
+    ```
+
+    
+
+  * 容器设计模式: Sidecar，将辅助功能同主业务容器解耦，实现独立发布和能力重用。
+
+    ```
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: javaweb-2
+    spec:
+      initContainer:
+      - image: resource/sample:v2
+        name:war
+        command: ["cp", "/sample.war", "/app"]
+        volumeMounts:
+        - mountPath: /app
+          name: app-volume
+      containers:
+      - image: resource/tomcat:7.0
+        name: tomcat
+        command: ["sh", "-c", "/root/apache-tomcat-7.0.43-v2/bin/start.sh"]
+        volumeMounts:
+        - mountPath: /root/apache-tomcat-7.0.42-v2/webapps
+          name: app-volume
+        ports:
+        - containerPort: 8080
+          hostPort: 8001
+      volumes:
+      - name: app-volume
+        emptyDir: {}
+    ```
+
+    1. Init Container会比spec.containers先启动；
+    2. /app 是一个volume；
+    3. Tomcat容器，同样声明了挂载该volume到自己的webapps下；
+    4. 故当Tomcat容器启动时，它的webapps目录下就一定会存在sample.war文件。
 
 
-####　pod
 
-* 自主式Pod
-* 控制器管理的Pod
-
-#### ReplicaSet
+### ReplicaSet(RS)
 
 ```
 用来确保容器应用的副本数始终保持在用户定义的副本数，即如果有容器异常退出，会自动创建新的Pod来替代；而如果异常多出来的容器也会自动回收。支持集合式的selector。
 ```
 
-一般使用Deployment自动管理RS(RS不支持rolling-update，但Deployment支持)
+* 一般使用Deployment自动管理RS(RS不支持rolling-update，但Deployment支持)
 
-#### Deployment 
+### Deployment 
 
 ```
 为Pod和RS提供了一个声明式定义(declarative)方法。典型应用场景如下：
@@ -276,15 +396,19 @@ Annotations是key/value形式附加于对象的注解。不同于Labels用于标
  * 暂停和继续Deployment;
 ```
 
-<img src="Kubernetes.assets/image-20201130071623720.png" alt="image-20201130071623720" style="zoom:50%;" />
+<img src="Kubernetes.assets/image-20201130071623720.png" alt="image-20201130071623720" style="zoom:50%;" /><img src="Kubernetes.assets/image-20201225065007672.png" alt="image-20201225065007672" style="zoom:50%;" />
 
-#### HPA
+* Deployment负责管理不同版本的ReplicaSet, 由ReplicaSet管理Pod副本数；
+* 每个ReplicaSet对应了Deployment template的一个版本；
+* 一个ReplicaSet下的Pod是相同版本。
+
+**HPA**
 
 ```
-仅适用于Deployment和RS，在V1版本中仅支持根据Pod的CPU利用率缩容，在v1alpha版本中，支持根据内存和用户自定义的metric扩缩容。
+在V1版本中仅支持根据Pod的CPU利用率缩容，在v1alpha版本中，支持根据内存和用户自定义的metric扩缩容。
 ```
 
-#### StatefulSet
+### StatefulSet
 
 ```
 为了解决有状态服务的问题(对应Deployment和RS是为无状态服务而设计的),其应用场景如下：
@@ -294,7 +418,7 @@ Annotations是key/value形式附加于对象的注解。不同于Labels用于标
  * 有序收缩，有序删除；
 ```
 
-#### DaemonSet
+### DaemonSet
 
 ```
 确保全部(或一些)Node上运行一个Pod的副本，当有Node加入集群时，也会为他们新增一个Pod；当有Node从集群移除时，这些Pod也会被回收。删除DaemonSet将会删除它创建的所有Pod。典型用法如下：
@@ -303,7 +427,7 @@ Annotations是key/value形式附加于对象的注解。不同于Labels用于标
  * 在每个Node上运行监控daemon，例如Prometheus Node Exporter；
 ```
 
-#### Job CronJob
+### Job CronJob
 
 ```
 Job负责批处理任务，即仅执行一次的任务，它保证批处理任务的一个或多个Pod成功结束；
@@ -312,20 +436,20 @@ Cron Job管理基于时间的Job,即：
  * 周期性地在给定时间点运行；
 ```
 
-#### 网络通讯方式
+### 网络通讯方式
 
 * 同一个Pod内的多个容器之间： localhost
 
 * 各Pod之间的通讯： Overlay Network；
 
-  1）Pod1与Pod2在同一台机器，由Docker0网桥直接转发请求至Pod2，不需要经过flannel；
+  1）Pod1与Pod2在同一台机器，由**docker0**网桥直接转发请求至Pod2，不需要经过flannel；
 
-  2）Pod1与Pod2不在同一台主机，Pod的地址是与docker0在网一个网段的，但docker0网段与宿主机网卡是两个完全不同的IP网段，并且不同Node之间的通信只能通过宿主机的物理网卡进行。将Pod的IP和所在Node的IP关联起来，通过这个关联让Pod可以互相访问；
+  2）Pod1与Pod2不在同一台主机，通过宿主机的**物理网卡**进行**。**将Pod的IP和所在Node的IP关联起来，通过这个关联让Pod可以互相访问；
 
-* Pod与Service之间的通讯：各节点的Iptables(IPVS)规则；
+* Pod与Service之间的通讯：**各节点的Iptables(IPVS)规则**；
 
   ```
-  Flannel是CoreOS团队针对Kubernetes设计的一个网络规划服务，简单来说，它的功能是让集群中的不同节点主机创建的Docker容器都具有全集群唯一的虚拟IP地址。而且它还能在这些IP之间建立一个覆盖网络(Overlay Network)，通过这个覆盖网络，将数据包原封不动地传递到目标容器内。
+  Flannel是CoreOS团队针对Kubernetes设计的一个网络规划服务，简单来说，它的功能是让集群中的不同节点主机创建的Docker容器都具有【全集群唯一的虚拟IP地址】。而且它还能在这些IP之间建立一个覆盖网络(Overlay Network)，通过这个覆盖网络，将数据包原封不动地传递到目标容器内。
   Etcd之Flannel提供说明：
    * 存储管理Flannel可分配的IP地址段资源；
    * 监控Etcd中每个Pod的实际地址，并在内存中建立维护Pod节点路由表；
@@ -339,33 +463,33 @@ Cron Job管理基于时间的Job,即：
 k8s中所有的内容都抽象为资源，资源实例化之后，叫做对象。一般使用yaml格式的文件来创建符合我们期望的Pod，这样的yaml文件称为资源清单。
 ```
 
-**Pod生命周期**
+### Pod生命周期
 
 <img src="Kubernetes.assets/image-20201130080555566.png" alt="image-20201130080555566" style="zoom:50%;" />
 
 ```
 Pod能够具有多个容器，应用运行在容器里面，但是它也可能有一个或多个先于应用容器启动的 Init容器：
- * Init容器总是运行到成功完成为止；
- * 每个Init容器都必须在下一个Init容器启动之前成功完成；
-如果Pod的Init容器失败，k8s为不断地重启该Pod，直到Init容器成功为止，如果Pod对应的restartPolicy为Never，它不会重新启动。
-因为Init容器具有与应用容器分享的单独镜像，所以它们的启动相关代码具有如下优势：
- * Init容器使用Linux Namespace，所以相对应用程序容器来说具有不同的文件系统视图。因此，它们具有访问Secret的权限，而应用程序容器则不能；
- * 它们必须在应用程序启动之前运行完成，而应用程序容器是并行运行的，所以Init容器能够提供一种简单的阻塞或延迟应用容器启动的方法，直到满足一组先决条件；
- * 在Pod启动过程中，Init容器会按顺序在网络和数据卷初始化之后启动。每个容器必须在下一个容器启动之前成功退出；
- * 如果由于运行时失败退出，将导致容器启动失败，它会根据Pod的restartPolicy指定的策略进行重试；即如果Pod的restartPolicy设置为Always，Init容器失败时会使用RestartPolicy策略；
- * 在所有的Init容器没有成功之前，Pod将不会变成Ready状态。Init容器的端口将不会在Service中进行聚集，正在初始化中的Pod处于Pending状态，但应该会将Initializing状态设置为true；
- * 如果Pod重启，所有Init容器必须重新执行；
- * 对Init容器spec的修改被限制在容器Image字段，修改其他字段都不会生效。更改init容器的image字段，等价于重启该Pod；
- * Init容器具有应用容器的所有字段，除了redinessProbe，因为Init容器无法定义不同于完成(completion)的就绪(rediness)之外的其他状态。这会在验证过程中强制执行；
- * 在Pod中的每个app和init容器的名称必须唯一；与任何其它容器共享同一个名称，会在验证时抛出错误；
+ * InitC总是运行到成功完成为止；
+ * 每个InitC都必须在下一个InitC启动之前成功完成；
+如果Pod的InitC失败，k8s为不断地重启该Pod，直到InitC成功为止，如果Pod对应的restartPolicy为Never，它不会重新启动。
+因为InitC具有与应用容器分离的单独镜像，所以它们的启动相关代码具有如下优势：
+ * InitC使用Linux Namespace，所以【相对应用程序容器来说具有不同的文件系统视图】。因此，它们具有访问Secret的权限，而应用程序容器则不能；
+ * 它们必须在应用程序启动之前运行完成，而应用程序容器是并行运行的，所以InitC能够提供一种简单的阻塞或延迟应用容器启动的方法，直到满足一组先决条件；
+ * 在Pod启动过程中，InitC会按顺序在网络和数据卷初始化之后启动。每个容器必须在下一个容器启动之前成功退出；
+ * 如果由于运行时失败退出，将导致容器启动失败，它会根据Pod的restartPolicy指定的策略进行重试；即如果Pod的restartPolicy设置为Always，InitC失败时会使用RestartPolicy策略；
+ * 在所有的InitC没有成功之前，Pod将不会变成Ready状态。InitC的端口将不会在Service中进行聚集，正在初始化中的Pod处于Pending状态，但应该会将Initializing状态设置为true；
+ * 如果Pod重启，所有InitC必须重新执行；
+ * 对InitC spec的修改被限制在容器Image字段，修改其他字段都不会生效。更改initC的image字段，等价于重启该Pod；
+ * InitC具有应用容器的所有字段，除了redinessProbe，因为InitC无法定义不同于完成(completion)的就绪(rediness)之外的其他状态。这会在验证过程中强制执行；
+ * 在Pod中的每个app和initC的名称必须唯一；与任何其它容器共享同一个名称，会在验证时抛出错误；
 
 ```
 
-**容器探针**
+### 容器探针
 
 ```
 探针是由kubelet对容器执行的定期诊断，要执行诊断，kubelet调用由容器实现的Handler。有三种类型的处理程序：
- * ExexAction: 在容器内执行指定命令，如果命令退出时返回码为0则认为诊断成功；
+ * ExecAction: 在容器内执行指定命令，如果命令退出时返回码为0则认为诊断成功；
  * TCPSocketAction: 对指定端口上的容器的IP地址进行TCP检查，如果端口打开，则诊断被认为是成功的；
  * HTTPGetAction: 对指定的端口和路径上的容器IP地址执行HTTP Get请求，如果响应的状态码大于等于200且小于400,则诊断被认为是成功的；
 每次探测都将获得以下三种结果之一：
@@ -377,21 +501,21 @@ Pod能够具有多个容器，应用运行在容器里面，但是它也可能�
  * readinessProbe: 指示容器是否准备好服务请求；如果就绪探测失败，端点控制器将从与Pod匹配的所有Service的端点中删除该Pod的IP地址；初始延迟之前的就绪状态默认为Failure。如果容器不提供就绪探针，则默认状态为Success。
 ```
 
-**Pod hook**
+### Pod hook
 
 ```
-Pod hook(钩子)是由Kubernetes管理的Kubelet发起的，当容器中的进程启动前或者容器中的进程终止之前运行，这是包含在容器的生命周期之中。可以同时为Pod中的所有容器都配置hook。Hook的类型包括两种：
+Pod hook(钩子)是由k8s管理的Kubelet发起的，当容器中的进程启动前或者容器中的进程终止之前运行，这是包含在容器的生命周期之中。可以同时为Pod中的所有容器都配置hook。Hook的类型包括两种：
  * exec: 执行一段命令；
  * HTTP: 发送HTTP请求；
 ```
 
-**restartPolicy**
+### restartPolicy
 
 ```
 PodSpec中有一个restartPolicy字段，可能的值为Always、OnFailure、Never。默认为Always。restartPolicy适用于Pod中的所有容器，restartPolicy仅指通过同一节点上的kubelet重新启动容器。失败的容器由kubelet以五分钟为上限的指数退避延迟(10秒，20秒，40秒。。。)重新启动，并在成功执行10分钟后重置。如Pod文档中所述，一旦绑定到一个节点，Pod将永远不会重新绑定到另一个节点。
 ```
 
-**status**
+### status
 
 * Pending: Pod已被k8s系统接受，但有一个或多个容器镜像尚未创建，等待时间包括调度Pod的时间和通过网络下载镜像的时间；
 * Running: 该Pod已经绑定到了一个节点上，Pod中所有的容器都已被创建，至少有一个容器正在运行，或者正处于启动或重启状态；
@@ -399,7 +523,9 @@ PodSpec中有一个restartPolicy字段，可能的值为Always、OnFailure、Nev
 * Failed: Pod中的所有容器都已终止了，并且至少有一个容器是因为失败终止。也就是说，容器以非0状态退出或者被系统终止；
 * Unknown: 因为某些原因无法取得Pod的状态，通常是因为与Pod所在主机通信失败；
 
-**资源清单格式**
+### 资源清单格式
+
+------
 
 ```
 apiVersion: group/apiverison  # 如果没有给定group名称，那么默认为core，可以使用kubectl api-versions获取当前k8s版本上								所有的apiVersion版本信息(每个版本可能不同)
@@ -421,6 +547,70 @@ kubectl explain pod
 kubectl explain Ingress
 ```
 
+**CMD、ENTRYPOINT、command、args**
+
+CMD、ENTRYPOINT是在dockerfile中定义的，command、args中k8s命令。
+
+* CMD
+
+  ```
+  容器启动以后，【默认】执行的命令，即如果docker run没有指定任何的执行命令或者dockerfile里面也没有entrypoint，那么，就会使用CMD指定的默认的执行命令执行，一个Dockerfile至多有一个CMD，用法：
+    1. 【推荐】，带有[]，这时命令没有在任何shell终端环境下，如果要执行shell，必须把shell加入到[]参数中；
+       FROM centos
+       CMD ["/bin/bash", "-c", "echo 'hello cmd!'"]
+    2. 没有[]，命令默认在"/bin/sh -c"下执行，
+       FROM centos
+       CMD echo "hello cmd!"
+       
+       运行：
+         docker run 7db28cb11055
+         hello cmd!
+  以上体现了CMD的【默认】行为，如果在run时指定了命令或者entrypoint，那么CMD就会被覆盖。
+  ```
+
+* ENTRYPOINT
+
+  ```
+  定义容器启动以后的执行体，用法：
+    1. 【推荐】，带[]，和CMD形式一致，如果run后面有东西，那么后面的全部都会作为entrypoint的参数，如果run后面没有，CMD后面有，那么CMD的全部内容会作为ENTRYPOINT的参数；
+      FROM centos
+      CMD ["p in cmd"]
+      ENTRYPOINT ["echo"]
+      运行：
+       => docker run cfcc
+       p in cmd 
+       
+       => docker run p in run
+       p in run
+    2. 无[]，任何run和cmd的参数都无法被传入到entrypoint里。
+  ```
+
+* command & args
+
+  ```
+  如果在容器配置中没有设置command或者args，那么将使用docker镜像自带的命令及其参数；
+  如果在容器配置中只设置了command，没有设置args，那么容器启动时只会执行该命令，docker镜像中自带的命令及其入参会被忽略；
+  如果在容器配置中只设置了args，那么docker镜像中自带的命令会使用该新入参作为其执行的入参；
+  如果在容器配置中同时设置了command与args，那么docker镜像中自带的命令及其入参会被忽略。
+  ```
+
+  ```
+  spec:
+    containers:
+      - name: ng1
+        image: ng1
+        command: [ "/bin/sh","-c" ] #运行的命令
+        args: [ "echo '222'>/222.txt;sleep 30" ] #命令的参数，进入容器内查看
+  ```
+
+  ```
+  kubectl exec -it pod-name -- /bin/bash
+  ls
+      222.txt
+  ```
+
+  
+
 **通过定义清单文件创建Pod**
 
 ```
@@ -431,7 +621,7 @@ metadata:
   namespace: default
   labels:
     app: myapp
-spec:
+spec: # 期望的状态(未必达到)，status：实际的状态
   containers:
   - name: myapp-1
     image: wangyanglinux/myapp:v1
@@ -463,7 +653,7 @@ spec:
   containers:
   - name: myapp-container
     image: busybox
-    command: ['sh', '-c', 'echo The app is running! && sleep 3600']
+    command: ['sh', '-c', 'echo The app is running! > 111.txt && sleep 3600']
   initContainers:
   - name: init-myservice
     image: busybox
@@ -497,6 +687,11 @@ spec:
 
 **检测探针 - 就绪检测**
 
+```
+readinessProbe主要探测服务是否就绪，如果你的应用的readinessProbe运行失败，那么就会从组成service的端点中删除，就样就不会有流量通过kubernetes服务发现机制来发送给它。
+livenessProbe探测服务是否可用，不可用时重启pod。
+```
+
 redinessProbe-httpget
 
 ```
@@ -514,8 +709,9 @@ spec:
       httpGet:
         port: 80
         path: /index1.html
-      initialDelaySeconds: 1
-      periodSeconds: 3
+      initialDelaySeconds: 1   # 容器启动后，第一次执行探测需要等待多少秒
+      periodSeconds: 3         # 执行探测的频率，默认是10s，最小1s
+                               # timeoutSeconds，探测超时时间，告诉k8s应该为健康检查等待多长时间，默认1s，最小1s
 ```
 
 **检测探针 - 存活检测**
@@ -584,7 +780,7 @@ spec:
         port: 80
 ```
 
-**启动、退出动作**
+### 启动、退出动作
 
 ```
 apiVersion: v1
@@ -604,7 +800,12 @@ spec:
           command: ["/bin/sh", "-c", "echo Hello from the poststop handler > /usr/share/message"]
 ```
 
+Lifecycle Hooks
 
+* kubelet可以运行被Container Lifecycle Hooks触发的代码，允许用户在容器生命周期指定时间运行指定的代码；
+* 存在两个被暴露出来的hook: 
+  * PostStart: 这种hook在容器启动后立即运行；
+  * PreStop: 这种hook在容器终止前被执行，是阻塞的，意味着必须在删除容器的调用之前完成hook的执行。
 
 **Pod中只有一个容器并且正在运行，容器成功退出**
 
@@ -675,250 +876,250 @@ spec:
 
 **Kubernetes中内建了很多Controller，这些相当于一个状态机，用来控制Pod的具体状态和行为**
 
-#### Controller类型
+### Controller类型
 
-* ReplicationController和ReplicaSet
+#### ReplicationController和ReplicaSet
 
-  ```
-  RC用来确保容器应用的副本数始终保持在用户定义的副本数，即如果有容器异常退出，会自动创建新的Pod来替代；而如果异常多出来的容器也会自动回收；
-  在新版k8s中建议使用【RS】来取代【RC】，其区别主要是RS支持集合式的selector;
-  ```
+```
+RC用来确保容器应用的副本数始终保持在用户定义的副本数，即如果有容器异常退出，会自动创建新的Pod来替代；而如果异常多出来的容器也会自动回收；
+在新版k8s中建议使用【RS】来取代【RC】，其区别主要是RS支持集合式的selector;
+```
 
-  ```
-  apiVersion: extensions/v1beta1
-  kind: ReplicaSet
-  metadata:
-    name: frontend
-  spec:
-    replicas: 3
-    selector:
-      matchLabels:
+```
+apiVersion: extensions/v1beta1
+kind: ReplicaSet
+metadata:
+  name: frontend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      tier: frontend
+  template:
+    metadata:
+      labels:
         tier: frontend
-    template:
-      metadata:
-        labels:
-          tier: frontend
-      spec:
-        containers:
-        - name: php-redis
-          image: wangyanglinux/myapp:v1
-          env:
-          - name: GET_HOSTS_FROM
-            value: dns
-          ports:
-          - containerPort: 80
-  ```
+    spec:
+      containers:
+      - name: php-redis
+        image: wangyanglinux/myapp:v1
+        env:
+        - name: GET_HOSTS_FROM
+          value: dns
+        ports:
+        - containerPort: 80
+```
 
-  
 
-* Deployment
 
-  ```
-  Deployment为Pod和RS提供了一个声明式定义方法，用来替代RC，来方便的管理应用。典型应用场景包括：
-    * 定义Deployment来创建Pod和RS；
-    * 滚动升级和回滚应用(RS实现)；
-    * 扩容和缩容；
-    * 暂停和继续 Deployment；
-  ```
+#### Deployment
 
-  **RS与Deployment关联**
+```
+Deployment为Pod和RS提供了一个声明式定义方法，用来替代RC，来方便的管理应用。典型应用场景包括：
+  * 定义Deployment来创建Pod和RS；
+  * 滚动升级和回滚应用(RS实现)；
+  * 扩容和缩容；
+  * 暂停和继续 Deployment；
+```
 
-  <img src="Kubernetes.assets/image-20201202080217359.png" alt="image-20201202080217359" style="zoom:50%;" />
+**RS与Deployment关联**
 
-  ```
-  apiVersion: extensions/v1beta1
-  kind: Deployment
-  metadata:
-    name: nginx-deployment
-  spec:
-    replicas: 3
-    template:
-      metadata:
-        labels:
-          app: nginx
-      spec:
-        containers:
-        - name: nginx
-          image: nginx:1.7.9
-          ports:
-          - containerPort: 80
-  ```
+<img src="Kubernetes.assets/image-20201202080217359.png" alt="image-20201202080217359" style="zoom:50%;" />
 
-  ```
-  # record参数可以记录命令，可以方便的查看每次 revision 的变化
-  kubectl create -f nginx-deployment.yaml --record
-  ```
+```
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.7.9
+        ports:
+        - containerPort: 80
+```
 
-  
+```
+# record参数可以记录命令，可以方便的查看每次 revision 的变化
+kubectl create -f nginx-deployment.yaml --record
+```
 
-  **扩容**
 
-  ```
-  kubectl scale deployment nginx-deployment --replicas 10
-  ```
 
-  如果集群支持HPA，还可以为Deployment设置自动扩展
+**扩容**
 
-  ```
-  kubectl autoscale deployment nginx-deployment --min=10 --max=15 --cpu-percent=80
-  ```
+```
+kubectl scale deployment nginx-deployment --replicas 10
+```
 
-  **镜像更新**
+如果集群支持HPA，还可以为Deployment设置自动扩展
 
-  ```
-  kubectl set image deployment/nginx-deployment nginx=nginx:1.9.1
-  ```
+```
+kubectl autoscale deployment nginx-deployment --min=10 --max=15 --cpu-percent=80
+```
 
-  **回滚**
+**镜像更新**
 
-  ```
-  kubectl rollout undo deployment/nginx-deployment
-  ```
+```
+kubectl set image deployment/nginx-deployment nginx=nginx:1.9.1
+```
 
-  **更新Deployment**
+**回滚**
 
-  ```
-  kubectl set image deployment/nginx-deployment nginx=nginx1.9.1
-  deployment "nginx-deployment" image updated
-  ```
+```
+kubectl rollout undo deployment/nginx-deployment
+```
 
-  **编辑**
+**更新Deployment**
 
-  ```
-  kubectl edit deployment/nginx-deployment
-  deployment "nginx-deployment" edited
-  ```
+```
+kubectl set image deployment/nginx-deployment nginx=nginx1.9.1
+deployment "nginx-deployment" image updated
+```
 
-  **查看rollout状态**
+**编辑**
 
-  ```
-  kubectl rollout status deployment/nginx-deployment
-  waiting for rollout to finish: 2 out of 3 new replicas have been updated...
-  deployment "nginx-deployment" successfully rolled out
-  ```
+```
+kubectl edit deployment/nginx-deployment
+deployment "nginx-deployment" edited
+```
 
-  **查看历史RS**
+**查看rollout状态**
 
-  ```
-  kubectl get rs
-  ```
+```
+kubectl rollout status deployment/nginx-deployment
+waiting for rollout to finish: 2 out of 3 new replicas have been updated...
+deployment "nginx-deployment" successfully rolled out
+```
 
-  **Deployment 更新策略**
+**查看历史RS**
 
-  ```
-  Deployment 可以保证在升级时只有一定数量的Pod是down的。默认的，它会确保至少有比期望数量少一个是up状态(最多一个不可用)
-  Deployment 同时也可以确保只创建出超过期望数量的一定数量的Pod。默认的，它会确保最多比期望的Pod数量多一个的Pod是Up的(最多1个surge)
-  kubectl describe deployments
-  ```
+```
+kubectl get rs
+```
 
-  **Rollover (多个rollout并行)**
+**Deployment 更新策略**
 
-  ```
-  假如您创建了有5个nginx:1.7.9 replica的Deployment，但是当还只有3个nginx:1.7.9的replica创建出来的时候您就开始更新含有5个nginx:1.9.1 replica的Deployment。在这种情况下，Deployment会立即杀掉已创建的3个nginx:1.7.9的Pod，并开始创建nginx:1.9.1的Pod。它不会等到所有的5个nginx:1.7.9的Pod都创建完成后才开始改变航道。
-  ```
+```
+Deployment 可以保证在升级时只有一定数量的Pod是down的。默认的，它会确保至少有比期望数量少一个是up状态(最多一个不可用)
+Deployment 同时也可以确保只创建出超过期望数量的一定数量的Pod。默认的，它会确保最多比期望的Pod数量多一个的Pod是Up的(最多1个surge)
+kubectl describe deployments
+```
 
-  **回退 Deployment**
+**Rollover (多个rollout并行)**
 
-  ```
-  kubectl set image deployment/nginx-deployment nginx=nginx:1.9.1
-  kubectl rollout status deployments nginx-deployment
-  kubectl get pods
-  kubectl rollout history deployment
-  ....
-  ```
+```
+假如您创建了有5个nginx:1.7.9 replica的Deployment，但是当还只有3个nginx:1.7.9的replica创建出来的时候您就开始更新含有5个nginx:1.9.1 replica的Deployment。在这种情况下，Deployment会立即杀掉已创建的3个nginx:1.7.9的Pod，并开始创建nginx:1.9.1的Pod。它不会等到所有的5个nginx:1.7.9的Pod都创建完成后才开始改变航道。
+```
 
-  ```
-  kubectl rollout status 查看Deployment是否完成，如果完成，kubectl rollout status将返回一个0值的Exit Code
-  kubectl rollout status deploy/nginx
-  ```
+**回退 Deployment**
 
-  **清理**
+```
+kubectl set image deployment/nginx-deployment nginx=nginx:1.9.1
+kubectl rollout status deployments nginx-deployment
+kubectl get pods
+kubectl rollout history deployment
+....
+```
 
-  ```
-  可以通过设置 .spec.revisionHistoryLimit 项来指定deployment历史记录。默认的会保留所有的revision;如果将该项设置为0，Deployment就不允许回退了。
-  ```
+```
+kubectl rollout status 查看Deployment是否完成，如果完成，kubectl rollout status将返回一个0值的Exit Code
+kubectl rollout status deploy/nginx
+```
 
-  
+**清理**
 
-* DaemonSet
+```
+可以通过设置 .spec.revisionHistoryLimit 项来指定deployment历史记录。默认的会保留所有的revision;如果将该项设置为0，Deployment就不允许回退了。
+```
 
-  ```
-  确保全部(或一些)Node上运行一个Pod的副本。当有Node加入集群时，也会为他们新增一个Pod；当有Node移除时，这些Pod也会被回收；删除DaemonSet将会删除它创建的所有Pod。
-  应用场景：
-    * 运行集群存储daemon，例如在每个Node上运行glusterd, ceph;
-    * 在每个Node上运行日志收集daemon，例如 fluented, logstash;
-    * 在每个Node上运行监控daemon，例如Prometheus Node Exporter, collectd, Datadog代理等;
-  ```
 
-  ```
-  apiVersion: apps/v1
-  kind: DaemonSet
-  metadata:
-    name: daemonset-example
-    labels:
-      app: daemonset
-  spec:
-    selector:
-      matchLabels:
+
+#### DaemonSet
+
+```
+确保全部(或一些)Node上运行一个Pod的副本。当有Node加入集群时，也会为他们新增一个Pod；当有Node移除时，这些Pod也会被回收；删除DaemonSet将会删除它创建的所有Pod。
+应用场景：
+  * 运行集群存储daemon，例如在每个Node上运行glusterd, ceph;
+  * 在每个Node上运行日志收集daemon，例如 fluented, logstash;
+  * 在每个Node上运行监控daemon，例如Prometheus Node Exporter, collectd, Datadog代理等;
+```
+
+```
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: daemonset-example
+  labels:
+    app: daemonset
+spec:
+  selector:
+    matchLabels:
+      name: daemonset-example
+  template:
+    metadata:
+      labels:
         name: daemonset-example
-    template:
-      metadata:
-        labels:
-          name: daemonset-example
-      spec:
-        containers:
-        - name: daemonset-example
-          image: wangyanglinux/myapp:v1
-  ```
+    spec:
+      containers:
+      - name: daemonset-example
+        image: wangyanglinux/myapp:v1
+```
 
-  
 
-* StatefulSet
 
-  ```
-  为Pod提供唯一的标识，可以保证部署和scale的顺序。
-  StatefulSet
-  ```
+#### StatefulSet
 
-  
+```
+为Pod提供唯一的标识，可以保证部署和scale的顺序。
+StatefulSet
+```
 
-* Job/CronJob
 
-  ```
-  Job: 批处理任务，即仅执行一次的任务，它保证批处理任务的一个或多个Pod成功结束；
-  CronJob: 基于时间的Job，即在给定时间只运行一次或周期性地在给定时间点运行；
-  应用场景：
-    * 在给定的时间点调度Job运行；
-    * 创建周期性运行的Job，例如：数据库备份、发送邮件；
-  ```
 
-  ```
-  apiVersion: batch/v1
-  kind: Job
-  metadata:
-    name: pi
-  spec:
-    template:
-      metadata:
-        name: pi
-      spec:
-        containers:
-        - name: pi
-          image: perl
-          command: ["perl", "-Mbignum=bpi", "-wle", "print bpi(2000)"]
-        restartPolicy: Never
-  ```
+#### Job/CronJob
 
-  
+```
+Job: 批处理任务，即仅执行一次的任务，它保证批处理任务的一个或多个Pod成功结束；
+CronJob: 基于时间的Job，即在给定时间只运行一次或周期性地在给定时间点运行；
+应用场景：
+  * 在给定的时间点调度Job运行；
+  * 创建周期性运行的Job，例如：数据库备份、发送邮件；
+```
 
-* HPA(Horizontal Pod Actoscling)
+```
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pi
+spec:
+  template:
+    metadata:
+      name: pi
+    spec:
+      containers:
+      - name: pi
+        image: perl
+        command: ["perl", "-Mbignum=bpi", "-wle", "print bpi(2000)"]
+      restartPolicy: Never
+```
 
-  ```
-  应用的资源使用率通常都有高峰和低俗的时候，如何削峰填谷，提高集群的整体资源利用率，让service中的Pod个数自动调整呢？
-  这就依赖于HPA，使Pod水平自动缩放。
-  ```
 
-  
+
+#### HPA(Horizontal Pod Actoscling)
+
+```
+应用的资源使用率通常都有高峰和低俗的时候，如何削峰填谷，提高集群的整体资源利用率，让service中的Pod个数自动调整呢？
+这就依赖于HPA，使Pod水平自动缩放。
+```
+
+
 
 ## 6.Service
 
@@ -926,86 +1127,90 @@ spec:
 在k8s中，pod的IP地址会随着pod的重启而变化；Service是为一组Pod(通过labels来选择)提供一个统一的入口，并为它们提供负载均衡和自动服务发现。
 ```
 
-
-
-#### 概念：Kubernetes Service定义了这样一种抽象：一个Pod的逻辑分组，一种可以访问它们的策略，通常是通过Label Selector --- 称为微服务。
+**Kubernetes Service定义了这样一种抽象：一个Pod的逻辑分组，一种可以访问它们的策略，通常是通过Label Selector。**
 
 <img src="Kubernetes.assets/image-20201203060422081.png" alt="image-20201203060422081" style="zoom:50%;" />
 
-#### Service只能提供4层负载，需要引入Ingress实现七层负载；
+### 类型
 
-#### Service的类型
+#### ClusterIP
 
-* **ClusterIP：默认类型，自动分配一个仅Cluster内部可以访问的虚拟IP；**
+**默认类型，自动分配一个仅Cluster内部可以访问的虚拟IP**
 
-  ```
-  clusteIP主要在每个node节点使用iptables，将发向clusterIP对应端口的数据，转发到kube-proxy中。然后kube-proxy自己内部实现有负载均衡的方法，并可以查询到这个service下对应pod的地址和端口，进而把数据转发给对应的pod的地址端口。
-  ```
+```
+clusteIP主要在每个node节点使用iptables，将发向clusterIP对应端口的数据，转发到kube-proxy中。然后kube-proxy自己内部实现有负载均衡的方法，并可以查询到这个service下对应pod的地址和端口，进而把数据转发给对应的pod的地址端口。
+```
 
-  <img src="Kubernetes.assets/image-20201203060700135.png" alt="image-20201203060700135" style="zoom:50%;" />
+<img src="Kubernetes.assets/image-20201203060700135.png" alt="image-20201203060700135" style="zoom:50%;" />
 
-  
 
-  为了实现图上的功能，需要以下几个组件协同工作：
 
-  	* apiserver 用户通过kubectl命令向apiserver发送创建service的命令，apiserver接收到请求后将数据存储到etcd中；
-  	* kube-proxy k8s的每个节点中都有一个叫做 kube-proxy的进程，这个进程负责感知service，pod的变化 ，将变化的信息写入本地的Iptables规则中；
-  	* iptables 使用NAT等技术将virtual的流量转至endpoint中；
+为了实现图上的功能，需要以下几个组件协同工作：
 
-  vi myapp-deploy.yaml
+```
+* apiserver 用户通过kubectl命令向apiserver发送创建service的命令，apiserver接收到请求后将数据存储到etcd中；
+* kube-proxy k8s的每个节点中都有一个叫做 kube-proxy的进程，这个进程负责感知service，pod的变化 ，将变化的信息写入本地的Iptables规则中；
+* iptables 使用NAT等技术将virtual的流量转至endpoint中；
+```
 
-  ```
-  apiVersion: apps/v1
-  kind: Deployment
-  metadata:
-    name: myapp-deploy
-    namespace: default
-  spec:
-    replicas: 3
-    selector:
-      matchLabels:
-        app: myapp
-        release: stable
-    template:
-      metadata:
-        labels:
-          app: myapp
-          release: stable
-          env: test
-      spec:
-        containers:
-        - name: myapp
-          image: wangyanglinux/myapp:v2
-          imagePullPolicy: IfNotPresent
-          ports:
-          - name: http
-            containerPort: 80
-  ```
+vi myapp-deploy.yaml
 
-  vi myapp-service.yaml
-
-  ```
-  apiVersion: v1
-  kind: Service
-  metadata:
-    name: myapp
-    namespace: default
-  spec:
-    type: ClusterIP
-    selector:
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-deploy
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
       app: myapp
       release: stable
-    ports:
-    - name: http
-      port: 80
-      targetPort: 80
-  ```
+  template:
+    metadata:
+      labels:
+        app: myapp
+        release: stable
+        env: test
+    spec:
+      containers:
+      - name: myapp
+        image: wangyanglinux/myapp:v2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 80
+```
 
+vi myapp-service.yaml
 
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp
+  namespace: default
+spec:
+  type: ClusterIP
+  selector:
+    app: myapp
+    release: stable
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+```
+
+clusterIP, 仅集群内部可访问：
+
+kubectl get svc
+
+curl cluster-ip
 
 **Headless Service**
 
-有时不需要或不想要负载均衡，以及单独的ServiceIP, 可以通过指定ClusterIP(spec.clusterIP)的值为【None】来创建 Headless Service。这类Service并不会分配ClusterIP, kube-proxy不会处理它们，而且平台也不会为它们进行负载均衡和路由。
+有时不需要或不想要负载均衡，以及单独的ServiceIP, 可以通过**指定ClusterIP(spec.clusterIP)的值为 None** 来创建 Headless Service。这类Service并不会分配ClusterIP, kube-proxy不会处理它们，而且平台也不会为它们进行负载均衡和路由。
 
 主要是为解决Hostname和podname变化的问题。
 
@@ -1032,59 +1237,61 @@ dig -t A myapp-headless.default.svc.cluster.local. @10.96.0.10
 
 
 
-* **NodePort: 在ClusterIP基础上为Service在每台机器上绑定一个端口，这样就可以通过：NodePort来访问该服务；**
+#### NodePort
 
-  原理：在node上开了一个端口，将向该端口的流量导入到Kube-proxy，然后由kube-proxy进一步到对应的pod；
+**在ClusterIP基础上为Service在每台机器上绑定一个端口，这样就可以通过：NodePort来访问该服务**
 
-  vi myapp-service.yaml
+原理：在node上开了一个端口，将向该端口的流量导入到Kube-proxy，然后由kube-proxy进一步到对应的pod；
 
-  ```
-  apiVersion: v1
-  kind: Service
-  metadata:
-    name: myapp
-    namespace: default
-  spec:
-    type: NodePort
-    selector:
-      app: myapp
-      release: stable
-    ports:
-    - name: http
-      port: 80
-      targetPort: 80
-  ```
+vi myapp-service.yaml
 
-    查询流程：iptables -t nat -nvl 
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: myapp
+    release: stable
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+```
 
-  ​                             KUBE-NODEPORTS
+  查询流程：iptables -t nat -nvl 
 
-* **LoadBalancer: 在NodePort的基础上，借助cloud provider创建一个外部负载均衡器，并将请求转发到：NodePort；**
+​                             KUBE-NODEPORTS
+
+#### LoadBalancer
+
+**在NodePort的基础上，借助cloud provider创建一个外部负载均衡器，并将请求转发到：NodePort**
 
 <img src="Kubernetes.assets/image-20201203064316149.png" alt="image-20201203064316149" style="zoom:50%;" />
 
-* **ExternalName: 把集群外部的服务引入到集群内部来，在集群内部直接使用。没有任何类型代理被创建，这只有Kubernetes 1.7或更高版本的kube-dns才支持；**
+#### ExternalName
 
-  这种类型的Service通过返回CNAME和它的值，可以将服务映射到externalName字段的内容，Externalname Service是Sevice的特例，它没有selector，也没有定义任何的端口和Endpoint。相反的，对于运行在集群外部的服务，它通过返回外部服务的别名这种方式来提供服务。
+**把集群外部的服务引入到集群内部来，在集群内部直接使用**
 
-  ```
-  kind: Service
-  apiVersion: v1
-  metadata:
-    name: my-service-1
-    namespace: default
-  spec:
-    type: ExternalName
-    externalName: iad.dvtest.qm.faw.cn
-  ```
+这种类型的Service通过返回CNAME和它的值，可以将服务映射到externalName字段的内容，Externalname Service是Sevice的特例，它没有selector，也没有定义任何的端口和Endpoint。相反的，对于运行在集群外部的服务，它通过返回外部服务的别名这种方式来提供服务。
 
-  当查询主机 my-service.default.svc.cluster.local(SVC_NAME.NAMESPACE.svc.cluster.local)时，集群的DNS服务将返回一个值 my.database.example.com的CNAME记录。访问这个服务的工作方式和其他的相同，唯一不同的是重定向发生在DNS层，而且不会进行代理或转发。
+```
+kind: Service
+apiVersion: v1
+metadata:
+  name: my-service-1
+  namespace: default
+spec:
+  type: ExternalName
+  externalName: iad.dvtest.qm.faw.cn
+```
 
-#### 原理
+当查询主机 my-service.default.svc.cluster.local(SVC_NAME.NAMESPACE.svc.cluster.local)时，集群的DNS服务将返回一个值 my.database.example.com的CNAME记录。访问这个服务的工作方式和其他的相同，唯一不同的是重定向发生在DNS层，而且不会进行代理或转发。
 
-![image-20201112070210799](C:\Users\lanch\AppData\Roaming\Typora\typora-user-images\image-20201112070210799.png)
-
-
+### 原理
 
 1. apiserver监听Services和Endpoints;
 2. kube-proxy打开代理端口并设置代理规则至iptables(ipvs)；
@@ -1116,15 +1323,15 @@ kube-proxy监视Service和Endpoints，创建ipvs规则并定期同步；访问�
 
 <img src="Kubernetes.assets/image-20201203065554969.png" alt="image-20201203065554969" style="zoom:50%;" />
 
-#### Ingress
+### Ingress
 
-
+------
 
 ```
-service的三种方式 ClusterIP NodePort LoadBalance都是在service的维度提供的，service的作用体现在两个方面，对集群内部，它不断跟踪pod的变化，更新endpoint中对应pod的对象，提供了ip不断变化的pod的服务发现机制；对集群外部，他类似负载均衡器，可以在集群内外部对pod进行访问。
+service的三种方式 ClusterIP、NodePort、LoadBalance都是在service的维度提供的，service的作用体现在两个方面，对集群内部，它不断跟踪pod的变化，更新endpoint中对应pod的对象，提供了ip不断变化的pod的服务发现机制；对集群外部，他类似负载均衡器，可以在集群内外部对pod进行访问。
 但是，单独用service暴露服务的方式，在实际生产环境中不太合适：
  * ClusterIP只能在集群内部访问；
- * NodePort当有几十上百的服务在集群中运行时，NodePort的端口管理是灾难；
+ * NodePort当有几十上百的服务在集群中运行时，NodePort的【端口管理是灾难】；
  * LoadBalance方式受限于云平台，且通常在云平台部署ELB还需要额外的费用；
 因此，一般采用Ingress方式在集群维度暴露服务。
 ```
@@ -1177,19 +1384,12 @@ scp other node
 docker load -i ingree.contro.tar
 
 
-
 ```
-
-
 
 ```
 kubectl get svc -n ingress-nginx
 kubectl get ingress
 ```
-
-
-
-
 
 
 
