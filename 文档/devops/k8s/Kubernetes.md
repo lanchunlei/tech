@@ -400,7 +400,9 @@ Google工程师发现，在Borg项目部署的应用，往往都存在着类似�
 
 * Deployment负责管理不同版本的ReplicaSet, 由ReplicaSet管理Pod副本数；
 * 每个ReplicaSet对应了Deployment template的一个版本；
-* 一个ReplicaSet下的Pod是相同版本。
+* 一个ReplicaSet下的Pod是相同版本；
+
+**OwnerRef: pod归哪个上层Controller管理。**
 
 **HPA**
 
@@ -418,14 +420,11 @@ Google工程师发现，在Borg项目部署的应用，往往都存在着类似�
  * 有序收缩，有序删除；
 ```
 
-### DaemonSet
 
-```
-确保全部(或一些)Node上运行一个Pod的副本，当有Node加入集群时，也会为他们新增一个Pod；当有Node从集群移除时，这些Pod也会被回收。删除DaemonSet将会删除它创建的所有Pod。典型用法如下：
- * 运行集群存储daemon，例如在每个Node上运行 glusterd、ceph；
- * 在每个Node上运行日志收集daemon，例如fluentd、logstash；
- * 在每个Node上运行监控daemon，例如Prometheus Node Exporter；
-```
+
+
+
+ 
 
 ### Job CronJob
 
@@ -455,7 +454,59 @@ Cron Job管理基于时间的Job,即：
    * 监控Etcd中每个Pod的实际地址，并在内存中建立维护Pod节点路由表；
   ```
 
-  
+### 容器资源配置管理
+
+**支持的资源类型：**
+
+* CPU: 单位： millicore(1core=1000millicore)；
+* Memory: 单位：Byte；
+* ephemeral storage(临时存储)：单位：Byte；
+* 自定义资源：配置时必须为整数；
+
+**配置方法**
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+spec:
+  containers:
+  - name: wp
+    image: wordpress
+    resources:             # 申请的资源
+      requests:
+        memory: "64Mi"
+        cpu: "250m"
+        ephemeral-storage: "2Gi"
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+        ephemeral-storage: "4Gi"
+```
+
+**Pod服务质量(QoS)配置**
+
+依据容器地CPU, Memory资源的requests/limit需求，Pod服务质量分类：
+
+* Guaranteed
+
+  * pod里的每个容器都必须有内存限制和请求，而且必须是一样的；
+  * pod里的每个容器都必须有CPU限制和请求，而且必须是一样的；
+
+* Burstable
+
+  * 非Guaranteed；
+  * Pod里至少有一个容器有内存或者CPU请求；
+
+* BestEffort
+
+  * 非Guaranteed；
+  * 非Burstable；
+
+  **当节点上Memory资源不足时，将依据BestEffort，Burstable，Guaranteed的优先顺序驱逐pod**
+
+
 
 ## 4.资源清单
 
@@ -1043,34 +1094,66 @@ kubectl rollout status deploy/nginx
 
 #### DaemonSet
 
-```
-确保全部(或一些)Node上运行一个Pod的副本。当有Node加入集群时，也会为他们新增一个Pod；当有Node移除时，这些Pod也会被回收；删除DaemonSet将会删除它创建的所有Pod。
-应用场景：
-  * 运行集群存储daemon，例如在每个Node上运行glusterd, ceph;
-  * 在每个Node上运行日志收集daemon，例如 fluented, logstash;
-  * 在每个Node上运行监控daemon，例如Prometheus Node Exporter, collectd, Datadog代理等;
-```
+**守护进程控制器**
+
+* 保证集群内每一个(或一些)节点都运行一组相同的pod；
+* 跟踪集群节点状态，保证新加入的节点自动创建对应的pod；
+* 跟踪集群节点状态，保证移除的节点删除对应的pod；
+* 跟踪pod状态，保证每个pod都处于运行状态；
+
+**典型用法**
+
+* 运行集群存储daemon，例如在每个Node上运行 glusterd、ceph；
+* 在每个Node上运行日志收集daemon，例如fluentd、logstash；
+* 在每个Node上运行监控daemon，例如Prometheus Node Exporter；
 
 ```
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: daemonset-example
+  name: fluentd-elasticsearch
+  namespace: kube-system
   labels:
-    app: daemonset
+    k8s-app: fluentd-logging
 spec:
   selector:
     matchLabels:
-      name: daemonset-example
+      name: fluentd-elasticsearch
   template:
     metadata:
       labels:
-        name: daemonset-example
+        name: fluentd-elasticsearch
     spec:
       containers:
-      - name: daemonset-example
-        image: wangyanglinux/myapp:v1
+      - name: fluentd-elasticsearch
+        image: fluent/fluentd:v1.4-1
 ```
+
+```
+kubectl get ds -n kube-system
+DESIRED: 需要的pod个数
+CURRENT: 当前已存在的pod个数
+READY: 就绪的个数
+UP-TO-DATE: 最新创建的个数
+AVAILABLE: 可用pod个数
+NODE SELECTOR: 节点选择标签
+```
+
+**更新策略**
+
+* RollingUpdate: DaemonSet默认更新策略，当更新DaemonSet模板后，老的pod会被先删除，然后再去创建新的pod，可以配合健康检查做滚动更新；
+* OnDelete: 当DaemonSet模板更新后，只有手动的删除某一个对应的pod，此节点pod才会被更新；
+* 更新方法：kubectl set image ds/fluentd-elasticsearch fluentd-elasticsearch=fluent/fluentd:v1.4。
+
+**管理模式**
+
+<img src="Kubernetes.assets/image-20201229071619228.png" alt="image-20201229071619228" style="zoom:50%;" />
+
+* DaemonSet Controller负责根据配置创建pod；
+* DaemonSet Controller跟踪Pod状态，根据配置及时重试pod或者继续创建；
+* DaemonSet Controller会自动添加affinity&label来跟踪对应的pod，并根据配置在每个节点或者适合的部分节点创建pod；
+
+
 
 
 
@@ -1087,6 +1170,10 @@ StatefulSet
 
 ```
 Job: 批处理任务，即仅执行一次的任务，它保证批处理任务的一个或多个Pod成功结束；
+  * 创建一个或多个Pod，确保指定数量的Pod可以成功地运行终止；
+  * 跟踪Pod状态，根据配置及时重试失败的Pod；
+  * 确定依赖关系，保证上一个任务运行完毕后再运行下一个任务；
+  * 控制任务并行度，并根据配置确保Pod队列大小；
 CronJob: 基于时间的Job，即在给定时间只运行一次或周期性地在给定时间点运行；
 应用场景：
   * 在给定的时间点调度Job运行；
@@ -1108,7 +1195,64 @@ spec:
         image: perl
         command: ["perl", "-Mbignum=bpi", "-wle", "print bpi(2000)"]
       restartPolicy: Never
+   backoffLimit: 4 # 重试次数
 ```
+
+```
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: paral-1
+spec:
+  completions: 8 # pod队列执行次数，这个任务将被执行8次
+  parallelism: 2 # 并行执行个数，2代表两个pod同时执行
+  template:
+    spec:
+      containers:
+      - name: param
+        image: ubuntu
+        command: ["/bin/sh"]
+        args: ["-c", "sleep 30; date"]
+      restartPolicy: OnFailure
+```
+
+```
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: hello
+spec:
+  schedule: "*/1 * * * *" # 每分钟,cronjob时间格式
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: hello
+            image: busybox
+            args:
+            - /bin/sh
+            - -c
+            - date; echo Hello from the Kubernetes cluster
+          restartPolicy: OnFailure
+  startingDeadlineSeconds: 10 # job最长启动时间
+  concurrencyPolicy: Allow    # 是否允许并行运行
+  successfulJobsHistoryLimit: 3 # 允许留存历史job个数
+```
+
+**管理模式**
+
+<img src="Kubernetes.assets/image-20201229064623815.png" alt="image-20201229064623815" style="zoom:50%;" style="float: right;"/>
+
+1. Job Controller负责根据配置创建Pod;
+2. Job Controller跟踪Job状态，根据配置及时重试Pod或者继续创建；
+3. Job Controller会自动添加label来跟踪对应的pod，并根据配置并行或者串行创建Pod；
+
+**控制器**
+
+<img src="Kubernetes.assets/image-20201229065349453.png" alt="image-20201229065349453" style="zoom: 67%;" />
+
+
 
 
 
@@ -1403,6 +1547,44 @@ kubectl get ingress
 
 **ConfigMap创建**
 
+```
+主要管理容器运行所需的【配置文件】，【环境变量】，【命令行参数】等可变配置。用于解耦容器镜像和可变配置，从而保证工作负责(Pod)的可移植性。需注意点：
+  * ConfigMap文件大小限制：1MB(ETCD的要求);
+  * Pod只能引用相同Namespace中的ConfigMap;
+  * Pod引用的ConfigMap不存在时，Pod无法创建成功;
+  * 使用envFrom从ConfigMap来配置环境变量时，如果ConfigMap中的某些key被认为无效(比如key名称中带有数字)，该环境变量将不会注入	容器，但是pod可以正常创建;
+  * 只有通过k8s api创建的pod才能使用ConfigMap，其他方式创建的pod(如manifest创建的static pod)不能使用configMap;
+```
+
+```
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: flannel
+    tier: node
+  name: kube-flannel-cfg
+  namespace: kube-system
+data:
+  cni-conf.json: |
+    {
+      "name": "cbr0",
+      "type": "flannel",
+      "delegate": {
+        "isDefaultGateway": true
+      }
+    }
+  net-conf.json: |
+    {
+      "Network": "172.27.0.0/16",
+      "Backend": {
+        "Type": "vxlan"
+      }
+    }
+```
+
+
+
 * 使用目录创建
 
   ```
@@ -1488,10 +1670,10 @@ kubectl get ingress
       image: wangyanglinux/myapp:v1
       command: [ "/bin/sh", "-c", "env" ] # 启动时执行的一条命令，打印出env环境变量
       env:
-        - name: SPECIAL_LEVEL_KEY
+        - name: SPECIAL_LEVEL_KEY      # 处定义名称
           valueFrom:
             configMapKeyRef:
-              name: special-config
+              name: special-config     # envFrom中定义的名称
               key: special.how
         - name: SPECIAL_TYPE_KEY
           valueFrom:
@@ -1500,7 +1682,7 @@ kubectl get ingress
               key: special.type
       envFrom:
         - configMapKeyRef:
-          name: special-config
+          name: special-config         # configMap中名称
           key: special.type
       envFrom:  # env从哪里来
         - configMapRef:
@@ -1650,7 +1832,21 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
 
 **Secret有三种类型**
 
-* Service Account: 用来访问Kubernetes API，由Kubernetes创建，并且会自动挂载到Pod的 /run/secrets/kubernetes.io/serviceaccount 目录中；
+* Service Account: 主要用于解决Pod在集群中的身份评论问题(访问K8S API)。由k8s创建，并且会自动挂载到Pod的 /run/secrets/kubernetes.io/serviceaccount 目录中；
+
+  **实现原理**
+
+    1. Pod创建时Admission Controller会根据指定的ServiceAccount(默认为default)把对应的Secret挂载到容器中固定的目录下(/var/run/secrets/kubernetes.io/serviceaccount)；
+
+    2. 当Pod访问集群时，可以默认利用Secret其中的token文件来认证pod的身份。(ca.crt用于校验服务端)；
+
+    3. 默认的token认证行为：
+
+       -Group: system: serviceaccounts: [namespace-name]
+
+       -User: system:serviceaccount:[namespace-name]:[pod-name]
+
+    4. Pod身份被认证合法后，其权限需要通过RBAC功能来配置，默认具备资源的GET权限。
 
   ```
   kubectl run nginx --image nginx
@@ -1680,7 +1876,7 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
   metadata:
     name: mysecret
   type: Opaque
-  data:
+  data:   						# secret存储的数据
     password: MWYyZDF1MmU2N2Rm
     username: YWRtaW4==
   ```
@@ -1704,19 +1900,21 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
      name: secret-test
    spec:
      volumes:
-     - name: secrets
+     - name: secrets  # 自定义名称
        secret:
          secretName:
-           mysecret
+           mysecret   # 引用的secret
      containers:
      - image: wangyanglinux/myapp:v1
        name: db
        volumeMounts:
-       - name: secrets
-         mountPath: /etc/secrets
+       - name: secrets  # 上面定义的名称
+         mountPath: /etc/secrets  # 将secret以文件形式挂载到 /etc/secrets目录下
          readOnly: true
      
    ```
+
+   
 
 2. 将Secret导出到环境变量中
 
@@ -1738,15 +1936,15 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
            ports:
            - containerPort: 80
            env:
-           - name: TEST_USER
+           - name: TEST_USER  # 自定义名称
              valueFrom:
                secretKeyRef:
-                 name: mysecret
+                 name: mysecret  # secret name
                  key: username
            - name: TEST_PASSWORD
              valueFrom:
                secretKeyRef:
-                 name: mysecret
+                 name: mysecret  # secret name
                  key: password
    ```
 
@@ -1757,6 +1955,12 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
    ```
 
 4. 在创建Pod的时候，通过imagePullSecrets来引用刚创建的`myregistrykey`
+
+   ```
+   私有镜像仓库的信息可以通过Secret(kubenetes.io/dockerconfigjson)存储在集群中，Pod如果需要私有镜像仓库，可以通过如下两种方式来配置：
+     * Pod.spec.imagePullSecrets来指定secret；
+     * ServiceAccount中设置imagePullSecrets，然后自动使用该SA的Pod注入imagePullSecrets信息。
+   ```
 
    ```
    apiVersion: v1
@@ -1770,6 +1974,27 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
      imagePullSecrets:
        - name: myregistrykey
    ```
+
+   ```
+   apiVersion: v1
+   kind: ServiceAccount
+   metadata:
+     createTimeStamp: 2015-08-07T22:02:37Z
+     name: default
+     namespace: default
+     sefLink: /api/v1/namespaces/default/serviceaccounts/default
+     uid: 052fb0f-3d9-jkl...
+   secrets:
+   - name: default-token-uudge
+   imagePullSecrets:
+   - name: myregistrykey  # 自动为使用该SA的Pod注入imagepullSecrets信息
+   ```
+
+   **注意：**
+
+   * Secret文件大小限制：1MB；
+   * Secret虽然采用base-64编码，但是可以通过简单解码查看原始信息。因此，机密信息采用secret存储仍需要慎重考虑或者对secret访问者进行控制。对secret加密有较强需求，可以考虑结合k8s+Vault来解决敏感信息的加密和权限管理。
+   * Secret最佳实践：因为list/watch的一般处理将获取到namespace下所有secrets，因此不建议采用list/watch方式获取secret信息。而推荐使用GET来获取需要的Secret，从而减少更多Secret暴露的可能性。
 
 
 
@@ -2726,6 +2951,51 @@ NamespaceLifecycle, LimitRanger, ServiceAccount, DefaultStorageClass， DefaultT
 * LimitRanger: 确保请求的资源不会超过资源所在namespace的LimitRange的限制；
 * ServiceAccount: 实现了自动化添加ServiceAccount；
 * ResourceQuota: 确保请求的资源不会超过资源的ResourceQuota限制；
+
+
+
+### Serity Context
+
+Security Context主要用于限制容器的行为，从而保障系统和其他容器的安全。
+
+* 容器级别的Security Context: 仅对指定容器生效；
+* Pod级别的Security Context: 对指定pod中的所有容器生效；
+* Pod Secutiry Policies(PSP): 对集群内所有Pod生效；
+
+**权限和访问控制设置项**
+
+* Discretionary Access Control: 根据用户id和组id来控制文件访问权限；
+* SELinux: 通过SELinux的策略配置控制用户，进程等对文件等访问控制；
+* privileged: 容器是否为特权模式；
+* Linux Capabilities: 给特定进程配置privileged能力；
+* AppArmor: 控制可执行文件的访问控制权限(读写文件/目录，网络端口读写等)；
+* Seccomp: 控制进程可以操作的系统调用；
+* AllowPrivilegeEscalation: 控制一个进程是否比其父进程获取更多的权限；
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-demo
+spec:
+  securityContext:    # pod级别的security context定义
+    runAsUser: 1000
+    runAsGroup: 3000
+    fsGroup: 2000
+  volumes:
+  - name: sec-ctx-vol
+    emptyDir: {}
+  containers:
+  - name: sec-ctx-demo
+    image: busybox
+    command: ["sh", "-c", "sleep 1h"]
+    volumeMounts:
+    - name: sec-ctx-vol
+      mountPath: /data/demo
+    securityContext:				# 容器级别定义
+      allowPrivilegeEsalation: false
+    
+```
 
 
 
