@@ -1543,12 +1543,16 @@ kubectl get ingress
 许多应用程序会从配置文件、命令行参数或环境变量中读取配置信息。ConfigMap API提供了【向容器中注入配置信息】的机制，ConfigMap可以被用来保存单个属性，也可以用来保存整个配置文件或者JSON二进制大对象。
 ```
 
+**Pod的配置管理**
+
+<img src="Kubernetes.assets/image-20201231061553068.png" alt="image-20201231061553068" style="zoom:67%;" />
+
 ### ConfigMap
 
 **ConfigMap创建**
 
 ```
-主要管理容器运行所需的【配置文件】，【环境变量】，【命令行参数】等可变配置。用于解耦容器镜像和可变配置，从而保证工作负责(Pod)的可移植性。需注意点：
+主要管理容器运行所需的【配置文件】，【环境变量】，【命令行参数】等可变配置。用于【解耦容器镜像和可变配置】，从而保证工作负载(Pod)的可移植性。需注意点：
   * ConfigMap文件大小限制：1MB(ETCD的要求);
   * Pod只能引用相同Namespace中的ConfigMap;
   * Pod引用的ConfigMap不存在时，Pod无法创建成功;
@@ -1670,10 +1674,10 @@ data:
       image: wangyanglinux/myapp:v1
       command: [ "/bin/sh", "-c", "env" ] # 启动时执行的一条命令，打印出env环境变量
       env:
-        - name: SPECIAL_LEVEL_KEY      # 处定义名称
+        - name: SPECIAL_LEVEL_KEY      # 自定义名称
           valueFrom:
             configMapKeyRef:
-              name: special-config     # envFrom中定义的名称
+              name: special-config     
               key: special.how
         - name: SPECIAL_TYPE_KEY
           valueFrom:
@@ -1696,17 +1700,6 @@ data:
 
   ```
   apiVersion: v1
-  kind: ConfigMap
-  metadata:
-    name: special-config
-    namespace: default
-  data:
-    special.how: very
-    special.type: charm
-  ```
-
-  ```
-  apiVersion: v1
   kind: Pod
   metadata:
     name: dapi-test-pod
@@ -1715,7 +1708,7 @@ data:
       - name: test-container
         image: wangyanglinux/myapp:v1
         command: [ "/bin/sh", "-c", "echo $(SPECIAL_LEVEL_KEY) $(SPECIAL_TYPE_KEY)" ]
-        env:
+      env:
           - name: SPECIAL_LEVEL_KEY
             valueFrom:
               configMapKeyRef:
@@ -1728,24 +1721,13 @@ data:
                 key: special.type
     restartPolicy: Never
   ```
-
   
-
+  
+  
 * 通过数据卷插件使用ConfigMap
 
-  ```
-  apiVersion: v1
-  kind: ConfigMap
-  metadata:
-    name: special-config
-    namespace: default
-  data:
-    special.how: very
-    special.type: charm
-  ```
-
   在数据卷里面使用这个ConfigMap，有不同的选项。最基本的就是将文件填入数据卷，在这个文件中，键就是文件名，键值就是文件内容。
-
+  
   ```
   apiVersion: v1
   kind: Pod
@@ -1754,20 +1736,20 @@ data:
   spec:
     containers:
       - name: test-container
-        image: wangyanglinux/myapp:v1
+      image: wangyanglinux/myapp:v1
         command: [ "/bin/sh", "-c", "cat /etc/config/special.how" ]
-        volumeMounts:
+      volumeMounts:
         - name: config-volume
-          mountPath: /etc/config # 启动后将文件挂载到容器的这个目录下
+          mountPath: /etc/config 			# 启动后将文件挂载到容器的这个目录下
     volumes:
       - name: config-volume
         configMap:
           name: special-config
     restartPolicy: Never
   ```
-
+  
   **ConfigMap 热更新**
-
+  
   ```
   apiVersion: v1
   kind: ConfigMap
@@ -1776,9 +1758,10 @@ data:
     namespace: default
   data:
     log_level: INFO
-  ---
+  ```
+---
   apiVersion: extensions/v1beta1
-  kind: Deployment
+kind: Deployment
   metadata:
     name: my-nginx
   spec:
@@ -1801,38 +1784,35 @@ data:
             configMap:
               name: log-config
   ```
-
+  
   ```
   kubectl exec `kubectl get pods -1 run=my-nginx -o=name|cut -d "/" -f2` cat /etc/config/log_level
   ```
-
+  
   **修改 ConfigMap**
   
   ```
   kubectl edit configmap log-config
   ```
   
-  **ConfigMap更新后滚动更新Pod**
+**ConfigMap更新后滚动更新Pod**
   
   更新ConfigMap目前并不会触发相关Pod的滚动更新，可以通过修改pod annotations的方式强制触发滚动更新
   
   ```
   kubectl patch deployment my-nginx --patch '{"spec": {"metadata": {"annotaions":{"version/config": "20190411"}}}}'
   ```
-  
-  更新ConfigMap后，使用该ConfigMap挂载的Env不会同步更新，使用该Config挂载的volume中的数据需要一段时间才能同步更新。
-
-
-
+更新ConfigMap后，使用该ConfigMap挂载的Env不会同步更新，使用该Config挂载的volume中的数据需要一段时间才能同步更新。
+  ```
 ### Secret
 
-```
 Secret解决了密码、token、密钥等敏感数据的配置问题，而不需要把这些敏感数据暴露到镜像或者 Pod Spec 中。Secret可以以Volume或者环境变量的方式使用。
+
 ```
 
 **Secret有三种类型**
 
-* Service Account: 主要用于解决Pod在集群中的身份评论问题(访问K8S API)。由k8s创建，并且会自动挂载到Pod的 /run/secrets/kubernetes.io/serviceaccount 目录中；
+* Service Account: 主要用于解决Pod在集群中的身份认证问题(访问K8S API)。由k8s创建，并且会自动挂载到Pod的 /run/secrets/kubernetes.io/serviceaccount 目录中；
 
   **实现原理**
 
@@ -1848,18 +1828,19 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
 
     4. Pod身份被认证合法后，其权限需要通过RBAC功能来配置，默认具备资源的GET权限。
 
-  ```
+```
   kubectl run nginx --image nginx
   	deployment "nginx" created
-  
+
   kubectl get pods
-  
+
   kubectl exec nginx-313753019-md1u2 ls /run/secrets/kubenetes.io/serviceaccount
   	ca.srt namespace token
+
+* Opaque:
+
   ```
-
-* Opaque: 用来存储密码、密钥等;其数据是一个map类型，要求value是base64编码；
-
+  用来存储密码、密钥等;其数据是一个map类型，要求value是base64编码；
   ```
   echo -n "admin" | openssl base64
   	YWRtaW4==
@@ -1867,9 +1848,9 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
   echo -n "1f2d1e2e67df" | openssl base 64
   	MWYyZDF1MmU2N2Rm
   ```
-
+  
   secrets.yaml
-
+  
   ```
   apiVersion: v1
   kind: Secret
@@ -1880,8 +1861,9 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
     password: MWYyZDF1MmU2N2Rm
     username: YWRtaW4==
   ```
-
   
+  
+  ```
 
 * Kubernetes.io/dockerconfigjson: 用来存储私有 docker registry的认证信息；
 
@@ -1891,7 +1873,7 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
 
 1. 将Secret挂载到Volume中
 
-   ```
+  ```
    apiVersion: v1
    kind: Pod
    metadata:
@@ -1911,10 +1893,9 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
        - name: secrets  # 上面定义的名称
          mountPath: /etc/secrets  # 将secret以文件形式挂载到 /etc/secrets目录下
          readOnly: true
-     
-   ```
+  ```
 
-   
+
 
 2. 将Secret导出到环境变量中
 
@@ -1970,7 +1951,7 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
    spec:
      containers:
        - name: foo
-         image: roc/awangyang:v1
+         image: roc/wangyang:v1
      imagePullSecrets:
        - name: myregistrykey
    ```
@@ -1986,7 +1967,7 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
      uid: 052fb0f-3d9-jkl...
    secrets:
    - name: default-token-uudge
-   imagePullSecrets:
+      imagePullSecrets:
    - name: myregistrykey  # 自动为使用该SA的Pod注入imagepullSecrets信息
    ```
 
@@ -1998,13 +1979,13 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
 
 
 
-### volume(卷)
+### Volume(卷)
 
-```
+   ```
 容器磁盘上的文件的生命周期是短暂的，这就使得在容器中运行重要应用时会出现一些问题。
 首先，当容器崩溃时，Kubelet会重启它，但是容器中的文件将丢失(容器以干净的状态--最初的状态，重新启动)。
 其次，在Pod中同时运行多个容器时，这些容器之间通常需要共享文件，k8s中的Volume抽象就很好的解决了这些问题。
-```
+   ```
 
 ​	**背景**
 
@@ -2018,10 +1999,10 @@ k8s中的【卷】有明确的生命周期(与封装它的Pod相同)。所以，
 aws csi nfs local fc flocker ...
 ```
 
-​	**emptyDir**
+* **emptyDir**
 
 ```
-当Pod被分配给节点时，首先创建emptyDir卷，并且只要该Pod在该节点运行，该卷就会存在。它最初是空的，Pod中的容器可以读取和写入emptyDir卷中相同的文件，尽管该卷可以挂载到每个容器中的相同或不同路径上。当出于任何原因从节点中删除Pod时，emptyDir中的数据将被永久删除。
+当Pod被分配给节点时，首先创建emptyDir卷，并且只要该Pod在该节点运行，该卷就会存在。它最初是空的，Pod中的容器可以读取和写入emptyDir卷中相同的文件，该卷可以挂载到每个容器中的相同或不同路径上。当从节点中删除Pod时，emptyDir中的数据将被永久删除。
 应用场景：
  * 暂存空间，例如用于基于磁盘的合并排序；
  * 用作长时间计算崩溃恢复时的检查点；
@@ -2038,17 +2019,17 @@ spec:
   - image: wangyanglinux/myapp:v1
     name: test-container
     volumeMounts:
-    - mountPath: /cache
+    - mountPath: /cache     # 将cache-volume卷挂载到容器 /cache 
       name: cache-volume
-  volumes:
-  - name: cache-volume
+    volumes:
+  - name: cache-volume　     # 定义emptyDir类型的卷
     emptyDir: {}
 ```
 
-​	**hostPath**
+* **hostPath**
 
 ```
-hostPath卷将主机节点的文件系统中的文件或目录挂载到集群中。
+hostPath卷【将主机节点的文件系统中的文件或目录挂载到集群中】。
 其用途如下：
  * 运行需要访问Docker内部的容器；使用 /var/lib/docker 的 hostPath；
  * 在容器中运行 cAdvisor；使用 /dev/cgroups 的 hostPath；
@@ -2070,9 +2051,9 @@ hostPath卷将主机节点的文件系统中的文件或目录挂载到集群中
 
 使用这种卷类型时需注意：
 
-	* 由于每个节点上的文件都不同，具有相同配置(例如从podTemplate创建的)的pod在不同节点上的行为可能会有所不同；
-	* 当k8s按照计划添加资源感知调度时，将无法考虑hostPath使用的资源；
-	* 在底层主机上创建的文件或目录只能由root写入。您需要在特权容器中以root身份运行进程，或修改主机上的文件权限以便写入hostPath卷；
+* 由于每个节点上的文件都不同，具有相同配置(例如从podTemplate创建的)的pod在不同节点上的行为可能会有所不同；
+* 当k8s按照计划添加资源感知调度时，将无法考虑hostPath使用的资源；
+* 在底层主机上创建的文件或目录只能由root写入。您需要在特权容器中以root身份运行进程，或修改主机上的文件权限以便写入hostPath卷；
 
 ```
 apiVersion: v1
@@ -2084,13 +2065,13 @@ spec:
   - image: wangyanglinux/myapp:v1
     name: test-container
     volumeMounts:
-    - mountPath: /test-pod
+    - mountPath: /test-pod  # 将节点上 /data 目录挂载到 容器 /test-pod
       name: test-volome
-  volumes:
+    volumes:				# 定义hostpath类型volume
   - name: test-volume
     hostPath:
-      path: /data     # directory location on host
-      type: Directory  # this field is optional
+      path: /data     	# directory location on host
+      type: Directory  	# this field is optional
 ```
 
 
@@ -2098,13 +2079,29 @@ spec:
 ### Persistent Volume(PV)
 
 ```
-Persistent Volume, 由管理员设置的存储，是集群的一部分。就像节点是集群中的资源一样，PV也是集群中的资源。PV是Volume之类的卷插件，但具有独立于使用PV的Pod的生命周期。此API对象包含存储实现的细节，即NFS、iSCSI或特定于云供应商的存储系统。
+Pod中声明的Volume的生命周期与Pod相同。
+Persistent Volume, 将存储与计算分离，使用不同组件(Containers)管理存储与计算资源，【解耦Pod与Volume的生命周期关联】。
+PV由管理员设置的存储，是集群的一部分。就像节点是集群中的资源一样，PV也是集群中的资源。PV是Volume之类的卷插件，但具有【独立于使用PV的Pod的生命周期】。此API对象包含存储实现的细节，即NFS、iSCSI或特定于云供应商的存储系统。
 ```
 
 **PVC**
 
+有了PV，又设计了PVC？
+
+设计意图：
+
+* 职责分离
+
+  PVC中只用声明自己需要的存储size、access mode(单node独占还是多node共享？只读还是读写访问？)等业务真正关心的存储需求(不关心存储实现细节)，PV和对应的后端存储信息则由交给cluster admin统一运维和管控，安全访问策略更容易控制。
+
+* PVC简化了User对存储的需求，PV才是存储的实际信息的承载体
+
+  通过kube-controller-manager中的PersistentVolumeController将PVC与合适的PV bound到一起，从而满足User对存储的实际需求
+
+* PVC像是面向对象编程中抽象出来的接口，PV才是接口对应的实现。
+
 ```
-Persistent Volume Claim，是用户存储的请求。它与Pod相似，Pod消耗节点资源，PVC消耗PV资源。Pod可以请求特定级别的资源(CPU和内存)。声明可以请求特定的大小和访问模式(如，可以以读/写一次或只读多次模式挂载)
+Persistent Volume Claim，是【用户存储的请求】。它与Pod相似，Pod消耗节点资源，PVC消耗PV资源。Pod可以请求特定级别的资源(CPU和内存)。PVC可以请求特定的大小和访问模式(如，可以以读/写一次或只读多次模式挂载)
 ```
 
 **静态PV**
@@ -2113,11 +2110,52 @@ Persistent Volume Claim，是用户存储的请求。它与Pod相似，Pod消耗
 集群管理员创建一些PV，它们带有可供集群用户使用的实际存储的细节。它们存在于kubernetes API中，可用于消费。
 ```
 
+不足：
+
+* ClusterAdmin需要提前规化或预测存储需求，而User的需求是多样化的，很容易导致User提交的PVC找不到合适的PV；
+
+更好的方式：
+
+* ClusterAdmin只创建不同类型存储的模板，User在PVC中指定使用哪种存储模板以及自己需要的大小、访问方式等参数，然后K8s自动生成相应的PV对象。
+
 **动态**
 
 ```
-当管理员创建的静态PV都不匹配用户的PVC时，集群可能会深度动态地为PVC创建卷。此配置基于 StorageClasses: PVC必须请求【存储类】，并且管理员必须创建并配置该类才能进行动态创建。声明该类为""，可以有效地禁用其动态配置。
+当管理员创建的静态PV都不匹配用户的PVC时，集群可能会深度动态地为PVC创建卷。此配置基于 StorageClasses(即是上面提到的存储模板): PVC必须请求【存储类】，并且管理员必须创建并配置该类才能进行动态创建，k8s会结合PVC和SC两者的信息动态创建PV对象。声明该类为""，可以有效地禁用其动态配置。
 ```
+
+**案例解读**
+
+```
+apiVersion: v1
+kind: Pod
+  name: test-pod
+spec:
+  containers:
+  - name: container-1
+    image: ubuntu: 18.04
+    volumeMounts:
+    - name: cache-volume
+      mountPath: /cache  		# 容器内挂载路径
+      subPath: cache1			# 在cache-volume建立子目录 cache1
+    - name: hostpath-volume
+      mountPath: /data
+      readOnly: true   			# 只读挂载
+  - name: container-2
+    image: ubuntu: 18.04
+    volumeMounts:
+    - mountPath: /cache
+    name: cache-volume
+    subPath: cache2
+    volume:
+  - name: cache-volume			# 宿主机上路径：/var/lib/kubelet/pods/<PodUID>/volumes/kubernetes.io-tmpty-dir
+    emptyDir: {}							/cache-volume，由于上面两个容器都通过subPath使用该volume，所以在该路径下											 还有两个子目录cache1和cache2，pod删除之后该目录也会被清除
+  - name: hostpath-volume
+    hostPath:
+      path: /tmp/data			# 宿主机上路径，pod删除之后该目录仍然存在
+```
+
+
 
 **绑定**
 
@@ -2125,13 +2163,13 @@ Persistent Volume Claim，是用户存储的请求。它与Pod相似，Pod消耗
 master中的控制环路监视新的PVC，寻找匹配的PV(如果可能)，并将它们绑定在一起。如果为新的PVC动态调配PV,则该环路将始终将该PV绑定到PVC。否则，用户总会得到他们所请求的存储，但是容量可能超出要求的数量。一旦PV和PVC绑定后，PVCx绑定是排他的。PVC跟PV绑定是一对一的映射。
 ```
 
-**持久卷声明的保护**
+**PVC保护**
 
 ```
 PVC保护的目的是确保由Pod正在使用的PVC不会从系统中移除，因为如果被移除的话，可能会导致数据丢失。当启用PVC保护alpha功能时，如果用户删除了一个pod正在使用的PVC，则该PVC不会被立即删除。PVC的删除将被推迟，直到PVC不再被任何Pod使用。
 ```
 
-**持久卷的类型**
+**PV的类型**
 
 ```
 PV类型以插件形式实现，k8s目前支持以下插件类型：
@@ -2162,9 +2200,9 @@ spec:
 **PV访问模式**
 
 ```
-PersistentVolume可以以资源提供者支持的任何方式挂载到主机上。如，NFS可以支持多个读/写客户端，但特定的NFS PV可能以只读方式导出到服务器上。每个PV都有一套自己的用来描述特定功能的访问模式。
+PV可以以资源提供者支持的任何方式挂载到主机上。如，NFS可以支持多个读/写客户端，但特定的NFS PV可能以只读方式导出到服务器上。每个PV都有一套自己的用来描述特定功能的访问模式。
  * ReadWriteOnce	该卷可以被单个节点以读/写模式挂载
- * ReadOnlyMand		该卷可以被多个节点以只读模式挂载
+ * ReadOnlyMany		该卷可以被多个节点以只读模式挂载
  * ReadWriteMany	该卷可以被多个节点以读/写模式挂载
 在命令行中，可缩写为 RWO  ROX  RWX
 ```
@@ -2192,12 +2230,95 @@ PersistentVolume可以以资源提供者支持的任何方式挂载到主机上�
 **<u>持久化演示说明 - NFS</u>**
 
 1. 安装NFS服务器
+
+```
+   yum install -y nfs-common nfs-utils rpcbind
+   mkdir /nfsdata
+   chmod nfsnobody /nfsdata
+   cat /etc/exports
+   	/nfsdata *(rw,no_root_squash,no_all_squash,sync)
+   systemctl start rpcbind
+   systemctl start nfs
+```
+
 2. 部署PV
+
+   ```
+   apiVersion: v1
+   kind: PersistenceVolume
+   metadata:
+     name: nfspv1
+   spec:
+     capacity:
+       storage: 1Gi
+     accessModes:
+       - ReadWriteOnce
+     persistentVolumeReclaimPolicy: Recycle
+     storageClassName: nfs
+     nfs:
+       path: /data/nfs
+       server: 192.168.216.10
+   ```
+
 3. 创建服务并使用PVC
 
+   ```
+   apiVersion: v1
+   kind: Service
+   metadata:
+     name: nginx
+     labels:
+       app: nginx
+   spec:
+     ports:
+     - port: 80
+       name: web
+     clusterIP: None
+     selector:
+       app: nginx
+   ---
+   apiVersion: apps/v1
+   kind: StatefulSet
+   metadata:
+     name: web
+   spec:
+     selector:
+       matchLabels:
+         app: nginx
+     serviceName: "nginx"
+     replicas: 3
+     template:
+       metadata:
+         labels:
+           app: nginx
+       spec:
+         containers:
+         - name: nginx
+           image: wangyanglinux/myapp:v1
+           ports:
+           - containerPort: 80
+             name: web
+           volumeMounts:
+           - name: www
+             mountPath: /usr/share/nginx/html
+     volumeClainTemplates:
+     - metadata:
+         name: www
+       spec:
+         accessModes: [ "ReadWriteOnce" ]
+         storageClassName: "nfs"
+         resources:
+           requests:
+             storage: 1Gi
+   ```
+
+   
 
 
-<u>**关于 StatefulSet**</u>
+
+###  StatefulSet
+
+------
 
 * 匹配Pod name(网络标识)的模式为：$(statefulset名称)-$(序号)，如 web-0, web-1, web-2；
 * StatefulSet为每个Pod副本创建了一个DNS域名，这个域名格式为：$(podname).(headless servername),也就意味着服务间是通过pod域名通信而非pod ip，因为当Pod所在Node发生故障时，pod会被飘移到其它node上，pod ip会发生变化，但是pod域名不会变化；
@@ -2224,9 +2345,9 @@ PersistentVolume可以以资源提供者支持的任何方式挂载到主机上�
 
 **Scheduler**
 
-```
+   ```
 Scheduler是Kubernetes的调度器，是作为单独的程序运行的，启动之后会一直监听API Server，获取PodSpec.NodeName为空的pod，对每个pod都会创建一个binding，表明该pod应该放到哪个节点上。主要的任务是把定义的Pod分配到集群的节点上。需要考虑：
-```
+   ```
 
 * 公平：如何保证每个节点都能被分配资源；
 
@@ -2244,14 +2365,14 @@ Scheduler是Kubernetes的调度器，是作为单独的程序运行的，启动�
 
 1. 【预选】，过滤掉不满足条件的节点，这个过程称为predicate；如果在predicate过程中没有合适的节点，pod会一直在pending状态，不断重试调度，直到有节点满足条件。
 
-   ```
+```
    predicate有一系列的算法可以使用：
     * PodFitsResources: 节点上剩余的资源是否大于pod请求的资源；
     * PodFitsHost: 如果Pod指定了NodeName，检查节点名称是否和NodeName匹配；
     * PodFitsHostPorts: 节点上已经使用的port是否和pod申请的port冲突；
     * PodSelectorMatcher: 过滤掉和pod指定的label不匹配的节点；
     * NoDiskConflict: 已经mount的volume和pod指定的volume不冲突，除非它们都是只读；
-   ```
+```
 
    
 
@@ -2271,9 +2392,9 @@ Scheduler是Kubernetes的调度器，是作为单独的程序运行的，启动�
 
 ------
 
-```
+   ```
 除了kubernetes自带的调度器，你也可以编写自己的调度器。通过 spec:schedulername 参数指定调度器的名称。
-```
+   ```
 
 ```
 apiVersion: v1
@@ -2310,7 +2431,7 @@ spec:
   containers:
   - name: with-node-affinity
     image: wangyanglinux/myapp:v1
-  affinity:
+    affinity:
     nodeAffinity:
       requireDuringSchedulingIgnoreedDuringExecution:
         nodeSelectorTerms:
@@ -2334,7 +2455,7 @@ spec:
   containers:
   - name: with-node-affinity
     image: wangyanglinux/myapp:v1
-  affinity:
+    affinity:
     nodeAffinity:
       preferredDuringSchedulingIgnoreDuringExecution:
       - weight: 1 # 多个软策略存在时，分配的可能性
@@ -2359,7 +2480,7 @@ spec:
   containers:
   - name: with-node-affinity
     image: wangyanglinux/myapp:v1
-  affinity:
+    affinity:
     nodeAffinity:
       requireDuringSchedulingIgnoreedDuringExecution:
         nodeSelectorTerms:
@@ -2407,7 +2528,7 @@ spec:
   containers:
   - name: pod-3
     image: wangyanglinux/myapp:v1
-  affinity:
+    affinity:
     podAffinity:
       requiredDuringSchedulingIgnoredDuringExecution
       - labelSelector:
@@ -2418,7 +2539,7 @@ spec:
             - pod-1
         topologyKey: kubenetes.io/hostname
     podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
+        preferredDuringSchedulingIgnoredDuringExecution:
       - weight: 1
         podAffinityTerm:
           labelSelector:
@@ -2455,9 +2576,9 @@ Taint和Toleration相互配合，可以用来避免pod被分配到不合适的�
 
    每个污点的组成如下：
 
-   ```
+```
    key=value:effect
-   ```
+```
 
    每个污点有一个key和value作为污点的标签，其中value可以为空，effect描述污点的作用。当前taint effect支持如下三个选项：
 
@@ -2470,10 +2591,10 @@ Taint和Toleration相互配合，可以用来避免pod被分配到不合适的�
    ```
    # 设置污点
    kubectl taint nodes node1 key1=value1:NoSchedule
-   
+
    # 节点说明中，查找Taints字段
    kubectl describe pod pod-name
-   
+
    # 去除污点
    kubectl taint nodes node1 key1:NoSchedule-
    ```
@@ -2482,9 +2603,9 @@ Taint和Toleration相互配合，可以用来避免pod被分配到不合适的�
 
 **容忍(Tolerations)**
 
-```
+   ```
 设置了污点的Node将根据taint的effect: NoSchedule、PreferNoSchedule、NoExecute和Pod之间产生互斥的关系，Pod将在一定程度上不会被调度至Node上。但可以在Pod上设置容忍(Toleration)，意思是设置了容忍的Pod将可以容忍污点的存在，可以被调度至存在污点的Node上。
-```
+   ```
 
 pod.spec.tolerations
 
@@ -2510,10 +2631,10 @@ tolerations:
 
 1. 当不指定key时，表示容忍所有的污点key:
 
-   ```
+```
    tolerations:
    - operator: "Exists"
-   ```
+```
 
 2. 当不指定effect值时，表示容忍所有的污点作用：
 
@@ -2584,9 +2705,9 @@ tolerations:
 
 ## 9. 安全
 
-```
+   ```
 kubernetes作为一个分布式集群的管理工具，保证集群的安全性是其一个重要的任务。API Server是集群内部各个组件通信的中介，也是外部控制的入口。所以kubernetes的安全机制基本就是围绕保护API Server来设计的。kubernetes使用了认证(Authentication)、鉴权(Authorization)、准入控制(Admission Control)三步来保证API Server的安全。
-```
+   ```
 
 ### Authentication
 
@@ -2985,7 +3106,7 @@ spec:
   volumes:
   - name: sec-ctx-vol
     emptyDir: {}
-  containers:
+    containers:
   - name: sec-ctx-demo
     image: busybox
     command: ["sh", "-c", "sleep 1h"]
@@ -3141,7 +3262,7 @@ spec:
   - port: 80
     targetPort: 80
     protocol: TCP
-  selector:
+    selector:
     app: hello-world
 EOF
 
@@ -3287,14 +3408,14 @@ kubectl top pod --all-namespaces
 
 * 组件说明
 
-  ```
+```
   * MetricServer: 是k8s集群资源使用情况的聚合器，收集数据给k8s集群内使用，如kubectl, hpa, scheduler等；
   * PrometheusOperator: 是一个系统监测和警报工具箱，用来存储监控数据；
   * NodeExporter: 用于各node的关键度量指标状态数据；
   * KubeStateMetrics: 收集k8s集群内资源对象数据，制定告警规则；
   * Prometheus: 采用pull方式收集apiServer，scheduler, controller-manager, kubelet组件数据，通过http协议传输；
   * Grafana: 是可视化数据统计和监控平台；
-  ```
+```
 
   
 
@@ -3433,9 +3554,9 @@ kubectl top pod --all-namespaces
 
 添加Google incubator仓库
 
-```
+  ```
 helm repo add incubator http://storage.googleapis.com/kubernetes-charts-incubator
-```
+  ```
 
 部署Elasticsearch
 
@@ -3481,3 +3602,6 @@ helm install --name kib1 --namespace=efk -f values.yaml stable/kibana --version 
 1. ETCD自动满足高可用；
 2. Controller-manager和Scheduler同时只能有一个工作，另外两个处于挂起状态；
 3. ETCD、Controller-manager、Scheduler、kubelet、proxy高可用已由K8s集群解决；
+```
+
+```
