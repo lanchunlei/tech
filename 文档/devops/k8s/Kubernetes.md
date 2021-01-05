@@ -2080,21 +2080,19 @@ spec:
 
 ```
 Pod中声明的Volume的生命周期与Pod相同。
-Persistent Volume, 将存储与计算分离，使用不同组件(Containers)管理存储与计算资源，【解耦Pod与Volume的生命周期关联】。
+Persistent Volume, 将存储与计算分离，使用不同组件管理存储与计算资源，【解耦Pod与Volume的生命周期关联】。
 PV由管理员设置的存储，是集群的一部分。就像节点是集群中的资源一样，PV也是集群中的资源。PV是Volume之类的卷插件，但具有【独立于使用PV的Pod的生命周期】。此API对象包含存储实现的细节，即NFS、iSCSI或特定于云供应商的存储系统。
 ```
 
 **PVC**
 
-有了PV，又设计了PVC？
-
-设计意图：
+设计意图(有了PV，又设计了PVC？)：
 
 * 职责分离
 
-  PVC中只用声明自己需要的存储size、access mode(单node独占还是多node共享？只读还是读写访问？)等业务真正关心的存储需求(不关心存储实现细节)，PV和对应的后端存储信息则由交给cluster admin统一运维和管控，安全访问策略更容易控制。
+  PVC中只用【声明】自己需要的存储size、access mode(单node独占还是多node共享？只读还是读写访问？)等业务真正关心的存储需求(不关心存储实现细节)，PV和对应的后端存储信息则由交给cluster admin统一运维和管控，安全访问策略更容易控制。
 
-* PVC简化了User对存储的需求，PV才是存储的实际信息的承载体
+* PVC简化了User对存储的需求，PV才是存储的实际信息的承载体。
 
   通过kube-controller-manager中的PersistentVolumeController将PVC与合适的PV bound到一起，从而满足User对存储的实际需求
 
@@ -2107,7 +2105,7 @@ Persistent Volume Claim，是【用户存储的请求】。它与Pod相似，Pod
 **静态PV**
 
 ```
-集群管理员创建一些PV，它们带有可供集群用户使用的实际存储的细节。它们存在于kubernetes API中，可用于消费。
+【集群管理员创建】一些PV，它们带有可供集群用户使用(PVC声明匹配的)的实际存储的细节。它们存在于kubernetes API中，可用于消费。
 ```
 
 不足：
@@ -2121,41 +2119,105 @@ Persistent Volume Claim，是【用户存储的请求】。它与Pod相似，Pod
 **动态**
 
 ```
-当管理员创建的静态PV都不匹配用户的PVC时，集群可能会深度动态地为PVC创建卷。此配置基于 StorageClasses(即是上面提到的存储模板): PVC必须请求【存储类】，并且管理员必须创建并配置该类才能进行动态创建，k8s会结合PVC和SC两者的信息动态创建PV对象。声明该类为""，可以有效地禁用其动态配置。
+当管理员创建的静态PV都不匹配用户的PVC时，集群可能会深度动态地为PVC创建PV。此配置基于 StorageClasses(即是上面提到的存储模板): PVC必须请求【存储类】，并且管理员必须创建并配置该类才能进行动态创建，k8s会结合PVC和SC两者的信息动态创建PV对象。声明该类为""，可以有效地禁用其动态配置。
 ```
+
+```
+### 系统管理员创建 ###
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: csi-disk
+# 指定使用什么volume plugin来create/delete/attach/detach/mount/unmount 新PV
+# 该volume plugin需要部署到k8s cluster中
+provisioner: diskplugin.csi.alibabacloud.com
+parameters:
+  regionld: cn-Beijing
+  zoneId: cn-beijing-b
+  fsType: ext4
+  type: cloud_ssd
+recliamPolicy: Delete
+```
+
+```
+### 用户创建的PVC ###
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: disk-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 25Gi
+  storageClassName: csi-disk # PVC可通过该字段打到相同值的PV(静态PV)，也可以通过该字段对应的storageclass从而动态创建PV
+```
+
+```
+### 用户创建的Pod ###
+...
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.7.9
+    ports:
+    - containerPort: 80
+    volumeMounts:
+    - name: disk-pvc
+      mountPath: /data
+  volumes:
+  - name: disk-pvc
+    persistentVolumeClaim:
+    claimName: disk-pvc
+```
+
+**PV状态流转**
+
+<img src="Kubernetes.assets/image-20210105065046335.png" alt="image-20210105065046335" style="zoom: 67%;" />
+
+* 到达released状态的PV无法根据Reclaim Policy回到available状态而再次bound新的PVC。此时，如果想复用原来PV对应的存储中的数据，有以下两种方式：
+  * 复用old PV中记录的存储信息新建PV对象；
+  * 直接从PVC对象复用，即不unbound PVC和PV(StatefulSet处理存储状态的原理)。
 
 **案例解读**
 
-```
-apiVersion: v1
-kind: Pod
-  name: test-pod
-spec:
-  containers:
-  - name: container-1
-    image: ubuntu: 18.04
-    volumeMounts:
-    - name: cache-volume
-      mountPath: /cache  		# 容器内挂载路径
-      subPath: cache1			# 在cache-volume建立子目录 cache1
-    - name: hostpath-volume
-      mountPath: /data
-      readOnly: true   			# 只读挂载
-  - name: container-2
-    image: ubuntu: 18.04
-    volumeMounts:
-    - mountPath: /cache
-    name: cache-volume
-    subPath: cache2
-    volume:
-  - name: cache-volume			# 宿主机上路径：/var/lib/kubelet/pods/<PodUID>/volumes/kubernetes.io-tmpty-dir
-    emptyDir: {}							/cache-volume，由于上面两个容器都通过subPath使用该volume，所以在该路径下											 还有两个子目录cache1和cache2，pod删除之后该目录也会被清除
-  - name: hostpath-volume
-    hostPath:
-      path: /tmp/data			# 宿主机上路径，pod删除之后该目录仍然存在
-```
+* pod volume
 
+  ```
+  apiVersion: v1
+  kind: Pod
+    name: test-pod
+  spec:
+    containers:
+    - name: container-1
+      image: ubuntu: 18.04
+      volumeMounts:               # 声明container如何使用pod的volume
+      - name: cache-volume
+        mountPath: /cache  		# 容器内挂载路径
+        subPath: cache1			# 在cache-volume建立子目录 cache1,多个容器共享同一个volume时，通过subpath隔离
+      - name: hostpath-volume
+        mountPath: /data
+        readOnly: true   			# 只读挂载
+    - name: container-2
+      image: ubuntu: 18.04
+      volumeMounts:
+      - mountPath: /cache
+        name: cache-volume
+        subPath: cache2
+    volume:                       # Pod Volume
+    - name: cache-volume	# 宿主机上路径：/var/lib/kubelet/pods/<PodUID>/volumes/kubernetes.io-tmpty-dir
+      emptyDir: {}		# /cache-volume，由于上面两个容器都通过subPath使用该volume，所以在该路径下
+    - name: hostpath-volume       # 还有两个子目录cache1和cache2，pod删除之后该目录也会被清除
+      hostPath:
+        path: /tmp/data			# 宿主机上路径，pod删除之后该目录仍然存在
+  ```
 
+* PVC
+
+  <img src="Kubernetes.assets/image-20210105063656639.png" alt="image-20210105063656639" style="zoom:50%;" />
+
+  
 
 **绑定**
 
@@ -2183,11 +2245,11 @@ metadata:
   name: pv0003
 spec:
   capacity:
-    storage: 5Gi
+    storage: 5Gi              # 该PV的总容量
   volumeMode: Filesystem
   accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Recycle
+    - ReadWriteOnce           # 访问模式
+  persistentVolumeReclaimPolicy: Recycle   # 回收策略
   storageClassName: slow
   mountOptions:
     - hard
@@ -2197,7 +2259,7 @@ spec:
     server: 172.17.0.2
 ```
 
-**PV访问模式**
+**PV访问模式(access mode)**
 
 ```
 PV可以以资源提供者支持的任何方式挂载到主机上。如，NFS可以支持多个读/写客户端，但特定的NFS PV可能以只读方式导出到服务器上。每个PV都有一套自己的用来描述特定功能的访问模式。
@@ -2231,15 +2293,15 @@ PV可以以资源提供者支持的任何方式挂载到主机上。如，NFS可
 
 1. 安装NFS服务器
 
-```
+   ```
    yum install -y nfs-common nfs-utils rpcbind
-   mkdir /nfsdata
-   chmod nfsnobody /nfsdata
-   cat /etc/exports
-   	/nfsdata *(rw,no_root_squash,no_all_squash,sync)
-   systemctl start rpcbind
-   systemctl start nfs
-```
+      mkdir /nfsdata
+      chmod nfsnobody /nfsdata
+      cat /etc/exports
+      	/nfsdata *(rw,no_root_squash,no_all_squash,sync)
+      systemctl start rpcbind
+      systemctl start nfs
+   ```
 
 2. 部署PV
 
@@ -2312,9 +2374,11 @@ PV可以以资源提供者支持的任何方式挂载到主机上。如，NFS可
              storage: 1Gi
    ```
 
-   
+### K8s对PV+PVC体系完整处理流程详解
 
+<img src="Kubernetes.assets/image-20210105070039214.png" alt="image-20210105070039214" style="zoom:67%;" />
 
+<img src="Kubernetes.assets/image-20210105070116428.png" alt="image-20210105070116428" style="zoom:67%;" />
 
 ###  StatefulSet
 
@@ -2438,7 +2502,7 @@ spec:
         - matchExpressions:
           - key: kubernetes.io/hostname # kubectl get node --show-labels
             operator: NotIn
-            values:
+            values:  
             - k8s-node02
 ```
 
