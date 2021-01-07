@@ -206,11 +206,21 @@ containerd底层有containerd shim模块，其类似于一个守护进程，这�
 
 ## 2. 组件介绍
 
-**k8s架构**
+### k8s架构
+
+<img src="Kubernetes.assets/image-20210107070318727.png" alt="image-20210107070318727" style="zoom: 50%;" />
 
 
 
 <img src="Kubernetes.assets/image-20201130063949056.png" alt="image-20201130063949056" style="zoom: 50%;" />
+
+* Node: k8s中的工作节点，可以是虚拟机或物理机，每个Node由Master管理，Node上至少运行着：
+
+  * Kubelet: 管理k8s master和node之间的通信，管理node上pod和container；
+
+  * container runtime;
+
+    <img src="Kubernetes.assets/image-20210107063119243.png" alt="image-20210107063119243" style="zoom: 33%;" />
 
 * APIServer: **所有服务访问统一入口，并提供认证、授权、访问控制、API注册和发现等机制**；
 
@@ -220,7 +230,17 @@ containerd底层有containerd shim模块，其类似于一个守护进程，这�
 
 * Controller-Manager: 维护集群的状态，比如故障检测、自动扩展、滚动更新等；**只有一个Active,可热备**
 
-* Scheduler: 负责资源的调度，按照预定的调度策略将Pod调度到相应的机器上；**只有一个Active,可热备**
+  * Node controller: 负责在node挂掉时的提醒和响应；
+  * Replication Controller: 维护pod副本数；
+  * Endpoints controller: Populates the Endpoints object (that is, joins Services & Pods);
+  * Service Account & Token controllers: Create default accounts and API access tokens for new namespaces。
+
+* Scheduler: 负责资源的调度，按照预定的调度策略将Pod调度到相应的Node上；**只有一个Active,可热备**
+
+  调度factors:
+
+  * 资源需求、软硬件组成；
+  * affinity、anti-affinity；
 
 * Etcd: 键值对数据库，储存K8s集群所有重要信息(持久化)，保存了整个集群的状态；
 
@@ -505,6 +525,20 @@ spec:
   * 非Burstable；
 
   **当节点上Memory资源不足时，将依据BestEffort，Burstable，Guaranteed的优先顺序驱逐pod**
+
+
+
+### kubectl
+
+------
+
+* kubectl使用k8s API与集群进行交互；
+* kubectl get 列出资源；
+* kubectl describe 显示资源的详细信息；
+* kubectl logs 打印pod中的容器日志；
+* kubectl exec pod中容器内部执行命令；
+
+
 
 
 
@@ -1993,6 +2027,8 @@ Secret解决了密码、token、密钥等敏感数据的配置问题，而不需
 k8s中的【卷】有明确的生命周期(与封装它的Pod相同)。所以，卷的生命比Pod中的所有容器都长，当这个容器重启时数据仍然得以保存。当然，当Pod不再存在时，卷也将不复存在。更重要的是，K8s支持多种类型的卷，Pod可以同时使用任意数量的卷。
 ```
 
+<img src="Kubernetes.assets/image-20210107062442777.png" alt="image-20210107062442777" style="zoom:50%;" />
+
 ​	**类型**
 
 ```
@@ -2380,6 +2416,196 @@ PV可以以资源提供者支持的任何方式挂载到主机上。如，NFS可
 
 <img src="Kubernetes.assets/image-20210105070116428.png" alt="image-20210105070116428" style="zoom:67%;" />
 
+### 存储快照与拓扑调度
+
+------
+
+**存储快照产生的背景**
+
+* 如何保证重要数据在误操作之后可以快速恢复，以提高操作容错率？
+* 如何快速进行复制，迁移重要数据的动作？
+
+**K8s CSI Snapshotter controller**正是为了解决这些问题而设计的。
+
+**存储快照用户接口 - snapshot**
+
+<img src="Kubernetes.assets/image-20210105192716952.png" alt="image-20210105192716952" style="zoom:50%;" />
+
+**存储快照用户接口 - restore**
+
+<img src="Kubernetes.assets/image-20210105192827690.png" alt="image-20210105192827690" style="zoom:50%;" />
+
+PVC扩展字段 **.spec.dataSource** 可以指定为VolumeSnapshot对象，从而根据PVC对象生成新的PV对象，对应的存储数据是从VolumeSnapshot关联的 VolumeSnapshotContent restore 的。
+
+**拓扑**
+
+这里讨论的拓扑是指对K8s集群中nodes的“位置”关系的一种人为划分规则，通过在node的labels中设置，以标识属于具体的拓扑域，如Node labels包括：
+
+* kubernetes.io/hostname => nodename 拓扑域为 node 范围；
+* failure-domain.beta.kubernetes.io/region=>us-central1拓扑域为Region范围；
+* failure-domain.beta.kubernetes.io/zone=>us-central1-a拓扑域为Zone范围；
+
+当然也可以自定义一个 key:value pair 来定义一个具体的拓扑域，如 rack:rack1 可以用来将属于同一个机架(rack)上的服务器(nodes)划分为一组(一个具体的拓扑域rack1)，以区别另一个rack上的一组机器的“位置”关系。
+
+**存储拓扑调度产生的背景**
+
+k8s中通过PVC&PV体系将存储与计算分离，即使用不同的Controllers管理存储资源和计算资源。但如果创建的PV有访问“位置”(.spec.nodeAffinity)的限制，也就是只有在特定的一些nodes上才能访问PV，原有的创建Pod的流程与创建PV的流程分离，就无法保证新创建的Pod被调度到可以访问PV的node上，最终导致Pod无法正常运行起来。
+
+* Local PV只能在指定的Node上被Pod使用；
+
+  <img src="Kubernetes.assets/image-20210106061313955.png" alt="image-20210106061313955" style="zoom: 67%;" />
+
+* 单Region多Zone K8s集群，阿里云云盘当前只能被同一个Zone的Node上的Pod访问
+
+  <img src="Kubernetes.assets/image-20210106061550564.png" alt="image-20210106061550564" style="zoom:67%;" />
+
+**存储拓扑调度**
+
+* 本质问题
+
+  PV在Binding或者Dynamic Provisioning时，并不知道使用它的Pod会被调度到哪些Node上，但PV本身的访问对Node的“位置”(拓扑)有限制；
+
+* 流程改进
+
+  Binding/Dynamic Provisioning PV操作Delay到Pod调度结果确定之后做
+
+  * 对于pre-provisioned的含有Node Affinity的PV对象，可以在Pod运行的Node确认之后，根据Node找到合适的PV对象，然后与Pod中使用的PVC Binding，保证Pod运行的Node满足PV对访问“位置”的要求；
+  * 对于dynamic provisioning PV场景，在Pod运行的Node确认之后，可以结合Node的位置信息创建可被该Node访问的PV对象。
+
+* k8s相关组件改进
+
+  * PV Controller: 支持延迟Binding操作；
+  * Dynamic PV Provisioner: 动态创建PV时要结合Pod待运行的Node的“位置”信息；
+  * Scheduler: 选择Node时要考虑Pod的PVC Binding需求，也就是要结合pre-provisioned的PV的Node Affinity以及dynamic provisioning时PVC指定StorageClass.AllowedTopologies的限制。
+
+**用例解读**
+
+* Volume Snapshot/Restore示例
+
+  ```
+  # 创建VolumeSnapshotClass对象
+  apiVersion: snapshot.storage.k8s.io/v1alpha1
+  kind: VolumeSnapshotClass
+  metadata:
+    name: disk-snapshotclass
+  snapshotter: diskplugin.csi.alibabacloud.com # 指定Volume Snapshot时使用的Volume Plugin
+  
+  # 创建VolumeSnapshot对象
+  apiVersion: snapshot.storage.k8s.io/v1alpha1
+  kind: VolumeSnapshot
+  metadata:
+    name: disk-snapshot
+  spec:
+    snapshotClassName: disk-snapshotclass
+    source:
+      name: disk-pvc  # Snapshot的数据源
+      kind: PersistentVolumeClaim
+      
+  # 从snapshot中恢复数据到新生成的PV对象中
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: restore-pvc
+    namespace: simple
+  spec:
+    dataSource:
+      name: disk-snapshot
+      kind: VolumeSnapshot
+      apiGroup: snapshot.storage.k8s.io
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 20Gi
+    storageClassName: csi-disk
+  ```
+
+* Local PV示例
+
+  ```
+  # 创建一个no-provisioner StorageClass对象，目的是告诉PVController遇到 .spec.storgaeClassName为local-storage的PVC暂不做binding操作
+  
+  kind: StorageClass
+  apiVersion: storage.k8s.io/v1
+  metadata:
+    name: local-storage
+  provisioner: kubernetes.io/no-provisioner
+  volumeBindingMode: WaitForFirstConsumer # 延时Binding
+  
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: local-pvc
+  spec:
+    storageClassName: local-storage
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+        
+  # 创建Local PV对象
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: local-pv
+  spec:
+    capacity:
+      storage: 60Gi
+    accessModes:
+    - ReadWriteOnce
+    persistentVolumeReclaimPolicy: Retain
+    storageClassName: local-storage
+    local:
+      path: /share
+    nodeAffinity:          # 限制该PV只能在node1上被使用
+      required:
+        nodeSeletorTerms:
+        - matchExpressions:
+          - key: kubernetes.io/hostname   # 拓扑域限制：单node可访问
+            operator: In
+            values:
+            - node1
+  ```
+
+* 限制Dynamic Provision PV拓扑示例
+
+  ```
+  apiVersion: storage.k8s.io/v1
+  kind: StorageClass
+  metadata:
+    name: csi-disk
+  provisioner: diskplugin.csi.alibabacloud.com
+  parameters:
+    regionId: cn-hangzhou
+    fsType: ext4
+    type: cloud_ssd
+  volumeBindingMode: WaitForFirstConsumer
+  allowedTopologies:
+  - matchLabelExpressions:
+   # 拓扑域限制：动态创建的PV只能在可用区 cn-hangzhou-d被使用
+   -key: topology.diskplugin.csi.alibabacloud.com/zone
+     values:
+     -cn-hangzhou-d
+  reclaimPolicy: Delete
+  
+  # 当PVC对象被创建之后由于对应StorageClass的BindingMode为WaitForConsumer并不会马上动态生成PV对象，而是要等到使用该PVC对象的第一个Pod调度结果出来之后，而且kube-scheduler在调度Pod的时候会去选择满足StorageClass.allowedTopologies中指定的拓扑限制的Nodes
+  
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: disk-pvc
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resource:
+      requests:
+        storage: 30Gi
+    storageClassName: csi-disk
+  ```
+
+
+
 ###  StatefulSet
 
 ------
@@ -2496,14 +2722,14 @@ spec:
   - name: with-node-affinity
     image: wangyanglinux/myapp:v1
     affinity:
-    nodeAffinity:
-      requireDuringSchedulingIgnoreedDuringExecution:
-        nodeSelectorTerms:
-        - matchExpressions:
-          - key: kubernetes.io/hostname # kubectl get node --show-labels
-            operator: NotIn
-            values:  
-            - k8s-node02
+      nodeAffinity:
+        requireDuringSchedulingIgnoreedDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname # kubectl get node --show-labels
+              operator: NotIn
+              values:  
+              - k8s-node02
 ```
 
 preferredDuringSchedulingIgnoreDuringExecution
