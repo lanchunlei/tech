@@ -220,6 +220,30 @@ containerd底层有containerd shim模块，其类似于一个守护进程，这�
 
   * container runtime;
 
+  * kube-proxy;
+
+  * status:  kubectl describe node <insert-node-name-here>
+
+    * Address
+    * Conditions
+      * ready:
+        * true: if the node is healthy and ready to accept pods
+        * false: if the node is not healthy and is not accepting pods
+      * 
+    * Capacity and Allocatable
+    * Info
+
+  * Node Controller
+
+    * k8s控制平台组件，管理node的不同切面；
+    * 为node分配CIDR block;
+    * 是是保持node controller内部的node清单最新的；
+    * 监控node健康状况；
+    
+  * 
+
+    
+    
     <img src="Kubernetes.assets/image-20210107063119243.png" alt="image-20210107063119243" style="zoom: 33%;" />
 
 * APIServer: **所有服务访问统一入口，并提供认证、授权、访问控制、API注册和发现等机制**；
@@ -620,8 +644,8 @@ metadata:    # 资源元数据
   namespace: default
   labels: my-pod
   annotations # 主要目的是方便用户阅读查找
-spec:  # 期望的状态
-status: # 当前状态，本字段由k8s自身维护，用户不能去定义
+spec:  # 期望的状态【desired state】
+status: # 当前状态【current state】，本字段由k8s自身维护，用户不能去定义,k8s control plane持续管理object，以满足spec
 ```
 
 **资源清单的常用命令**
@@ -634,7 +658,7 @@ kubectl explain Ingress
 
 **CMD、ENTRYPOINT、command、args**
 
-CMD、ENTRYPOINT是在dockerfile中定义的，command、args中k8s命令。
+CMD、ENTRYPOINT是在dockerfile中定义的，command、args是k8s命令。
 
 * CMD
 
@@ -2633,7 +2657,7 @@ k8s中通过PVC&PV体系将存储与计算分离，即使用不同的Controllers
 
 ## 8. 集群调度
 
-**Scheduler**
+### Scheduler
 
    ```
 Scheduler是Kubernetes的调度器，是作为单独的程序运行的，启动之后会一直监听API Server，获取PodSpec.NodeName为空的pod，对每个pod都会创建一个binding，表明该pod应该放到哪个节点上。主要的任务是把定义的Pod分配到集群的节点上。需要考虑：
@@ -2728,7 +2752,7 @@ spec:
           - matchExpressions:
             - key: kubernetes.io/hostname # kubectl get node --show-labels
               operator: NotIn
-              values:  
+              values:
               - k8s-node02
 ```
 
@@ -2974,7 +2998,7 @@ tolerations:
    metadata:
      name: myweb
    spec:
-     replicas: 2
+     replicas: 27
      template:
        metadata:
          labels:
@@ -2991,12 +3015,10 @@ tolerations:
 
    
 
-
-
 ## 9. 安全
 
    ```
-kubernetes作为一个分布式集群的管理工具，保证集群的安全性是其一个重要的任务。API Server是集群内部各个组件通信的中介，也是外部控制的入口。所以kubernetes的安全机制基本就是围绕保护API Server来设计的。kubernetes使用了认证(Authentication)、鉴权(Authorization)、准入控制(Admission Control)三步来保证API Server的安全。
+k8s作为一个分布式集群的管理工具，保证集群的安全性是其一个重要的任务。API Server是集群内部各个组件通信的中介，也是外部控制的入口。所以k8s的安全机制基本就是围绕保护API Server来设计的。k8s使用了认证(Authentication)、鉴权(Authorization)、准入控制(Admission Control)三步来保证API Server的安全。
    ```
 
 ### Authentication
@@ -3005,7 +3027,7 @@ kubernetes作为一个分布式集群的管理工具，保证集群的安全性�
 
 * Http Token认证：通过一个【Token】来识别合法用户；
 
-  * Http Token的认证是用一个很长的特殊编码方式，并且难以被模仿的字符串 - Token 来表达客户的一种方式。Token是一个很长的很复杂的字符串，每一个Token对应一个用户名存储在API Server能访问的文件中。当客户发起API调用请求时，需要在HTPP Header里放入Token；
+  * Http Token的认证是用一个很长的特殊编码方式，并且难以被模仿的字符串 - Token 来表达客户的一种方式。Token是一个很长的很复杂的字符串，每一个Token对应一个用户名存储在API Server能访问的文件中。当客户发起API调用请求时，需要在HTTP Header里放入Token；
 
 * Http Bse认证：通过 【用户名+密码】的方式认证
 
@@ -3021,7 +3043,7 @@ kubernetes作为一个分布式集群的管理工具，保证集群的安全性�
 
 **两种类型**
 
-* kubernetes组件对API Server的访问：kubectl、Controller Manager、Scheduler、Kuberlet、Kube-proxy
+* kubernetes组件对API Server的访问：kubectl、Controller Manager、Scheduler、Kubelet、Kube-proxy
 * kubernetes管理 的pod对容器的访问：pod（dashboard也是以pod形式运行）
 
 **安全性说明**
@@ -3037,19 +3059,19 @@ kubernetes作为一个分布式集群的管理工具，保证集群的安全性�
 **kubeconfig**
 
 ```
-kubeconfig文件包含集群参数(CA证书、API Server地址)，客户端参数(上面生成的证书和私钥)，集群context信息(集群名称、用户名)。kubernetes组件通过启动时指定不同的kubeconfig文件可以切换到不同的集群。
+kubeconfig文件包含集群参数(CA证书、API Server地址)，客户端参数(上面生成的证书和私钥)，集群context信息(集群名称、用户名)。k8s组件通过启动时指定不同的kubeconfig文件可以切换到不同的集群。
 ```
 
 **ServiceAccount**
 
 ```
-Pod中的容器访问API Server。因为Pod的创建、销毁是动态的。所以要为它手动生成证书就不行了。kubernetes使用了ServiceAccount解决pod访问API Server的认证问题。
+Pod中的容器访问API Server。因为Pod的创建、销毁是动态的。所以要为它手动生成证书就不行了。k8s使用了ServiceAccount解决pod访问API Server的认证问题。
 ```
 
 **Secret与SA的关系**
 
 ```
-kubernetes设计了一种资源对象叫做Secret，分为两类，一种是用于ServiceAccount的 service-account-token，另一种是用于保存用户自定义保密信息的Opaque。ServiceAccount中用到包含三个部分：Token、ca.crt、namespace
+k8cs设计了一种资源对象叫做Secret，分为两类，一种是用于ServiceAccount的 service-account-token，另一种是用于保存用户自定义保密信息的Opaque。ServiceAccount中用到包含三个部分：Token、ca.crt、namespace
  * token是使用API Server私钥签名的JWT，用于访问API Server时，Server端认证；
  * ca.crt，根证书，用于Client端验证API Server发送的证书；
  * namespace，标识这个service-account-token的作用域名空间；
@@ -3082,7 +3104,7 @@ kubectl describe secret default-token-5gm9r --namespace=kube-system
 
 * Webhook: 通过调用外部REST服务对用户进行授权；
 
-* RBAC(Role-Base Access Control)：基于角色的访问控制，现行默认规则；
+* **RBAC(Role-Base Access Control)：基于角色的访问控制，现行默认规则**；
 
   
 
@@ -3097,13 +3119,13 @@ kubectl describe secret default-token-5gm9r --namespace=kube-system
 RBAC的API资源对象说明
 
 ```
-RBAC引入了4个新的顶级资源对象：Role、ClusterRole、RoleBinding、CluterRoleBinding，4种对象类型均可以通过kubectl与API操作。RoleBinding对应的不一定是Role和ClusterRole，RoleBinding需要指定namespace。ClusterRoleBinding只能对应ClusterRole。
+RBAC引入了4个新的顶级资源对象：Role、ClusterRole、RoleBinding、CluterRoleBinding，4种对象类型均可以通过kubectl与API操作。RoleBinding对应的不一定是Role可以是ClusterRole，RoleBinding需要指定namespace。ClusterRoleBinding只能对应ClusterRole。
 ```
 
 <img src="Kubernetes.assets/image-20201215080557543.png" alt="image-20201215080557543" style="zoom:50%;" />
 
 ```
-Kubernetes并不会提供用户管理，那么User、Group、ServiceAccount指定的用户是从哪里来的呢？kubernetes组件(kubectl、kube-proxy)或是其他自定义的用户在向CA申请证书时，需要提供一个证书请求文件。
+K8s并不会提供用户管理，那么User、Group、ServiceAccount指定的用户是从哪里来的呢？k8s组件(kubectl、kube-proxy)或是其他自定义的用户在向CA申请证书时，需要提供一个证书请求文件。
 ```
 
 ```
@@ -3128,7 +3150,7 @@ Kubernetes并不会提供用户管理，那么User、Group、ServiceAccount指�
 
 ```
 API Server会把客户端证书的CN字段作为User，把names.o字段作为Group。
-kubelet使用TLS Bootstraping认证时，API Server可以使用Bootstrap Tokens或者Token authenticationfile验证 =token，无论哪一种，kubernetes都会为token绑定一个默认的User和Group。
+kubelet使用TLS Bootstraping认证时，API Server可以使用Bootstrap Tokens或者Token authenticationfile验证 =token，无论哪一种，k8s都会为token绑定一个默认的User和Group。
 Pod使用ServiceAccount认证时，service-account-token中的JWT会保存User信息。
 有了用户信息，再创建一对角色/角色绑定(集群角色/集群角色绑定)资源对象，就可以完成权限绑定了。
 ```
@@ -3237,7 +3259,7 @@ roleRef:
 **Resource**
 
 ```
-Kubernetes集群内一些资源一般以其名称字符串来表示，这些字符串一般会在API的URL地址中出现；同时某些资源也会包含子资源，例如logs资源就属于pods的子资源，API中URL样例如下：
+K8s集群内一些资源一般以其名称字符串来表示，这些字符串一般会在API的URL地址中出现；同时某些资源也会包含子资源，例如logs资源就属于pods的子资源，API中URL样例如下：
 GET /api/v1/namespaces/{namespace}/pods/{name}/log
 ```
 
@@ -3365,9 +3387,9 @@ NamespaceLifecycle, LimitRanger, ServiceAccount, DefaultStorageClass， DefaultT
 
 
 
-### Serity Context
+### Security Context
 
-Security Context主要用于限制容器的行为，从而保障系统和其他容器的安全。
+Security Context主要用于**限制容器的行为**，从而保障系统和其他容器的安全。
 
 * 容器级别的Security Context: 仅对指定容器生效；
 * Pod级别的Security Context: 对指定pod中的所有容器生效；
