@@ -1,0 +1,1005 @@
+## Linux基础
+
+### 概念
+
+**Linux是一个操作系统，相比于windows，linux以它的【可靠】和【安全】著称，而且更新频繁**
+
+**GNU项目**
+
+* GNU is not unix;
+* 一个类unix的操作系统；unix不是免费的；
+
+**linux和GNU项目的联系**
+
+* 这两个项目是互补的：linux其实就是写了一个类unix的内核；
+* 1991年，GNU项目已经创建了不少操作系统的外围软件了；
+* GNU的软件：cp命令，rm命令，Emacs，GCC，GDB 等；
+* GNU项目+Linux(系统内核)=GNU/LINUX完整的操作系统
+
+总结
+
+* 操作系统的核心称为“内核”，但内核并不等于操作系统；
+* 内核提供系统服务，比如文件管理、虚拟内存、设备I/O等；
+* 单独的Linux内核没办法工作，须要有GNU项目的众多应用程序；
+
+
+
+### linux发行版
+
+* RedHat： 性能稳定，收费的是RHEL;
+* Fedora: RedHat的社区免费后继版；
+* CnetOS: RHEL的克隆版，免费；
+* Debian: 迄今为止，最遵循GNU规范的Linux系统；
+* Ubuntu: Debian的后继或一个分支；
+
+### 安装centos
+
+**virtual box**
+
+
+
+### 文件系统
+
+```
+操作系统的文件数据除了实际内容之外，通常含有非常多的属性。文件权限与文件属性通常会分别存放在inode和block中。
+```
+
+**inode和block**
+
+```
+文件是存储在硬盘上的，硬盘的最小存储单位叫做扇区sector，每个扇区存储512字节。操作系统读取硬盘的时候，不会一个个扇区地读取，这样效率太低，而是一次性连续读取多个扇区，即一次性读取一个块block。这种由多个扇区组成的块，是文件存取的最小单位。块的大小，最常见的是4kb，即连续8个sector组成一个block。
+文件数据存储在块中，那么还必须找到一个地方存储文件的元信息，比如文件的创建者、创建日期、大小等。这种存储文件元信息的区域就叫做 inode，中文译名为索引节点，也叫i节点。因此，一个文件必须占用一个inode，但至少占用一个block。
+```
+
+* 元信息 -> inode
+* 数据 -> block
+
+------
+
+**inode内容**
+
+```
+inode包含很多的文件元信息，但不包含文件名，如字节数、属主UserID、属组GroupID、读写执行权限、时间戳等。
+而文件名存放在目录当中，但Linux系统内部不使用文件名，而是使用inode号码识别文件。对于系统来说文件名只是inode号码便于识别的别称。
+```
+
+**inode号码**
+
+```
+表面上，用户通过文件名打开文件，实际上，系统内部将这个过程分为三步：
+1. 系统找到这个文件名对应的inode号码；
+2. 通过inode号码，获取inode信息；
+3. 根据inode信息，找到文件数据所在的block，并读出数据。
+
+其实系统还要根据inode信息，看用户是否具有访问的权限，有就指向对应的数据block，没有就返回权限拒绝。
+```
+
+ls -i
+
+* 直接查看文件i节点号，也可以通过 stat 查看文件 inode 信息 i 节点号；
+
+**inode大小**
+
+```
+inode也会消耗硬盘空间，所以格式化的时候，操作系统自动将硬盘分成两个区域。一个是数据区，另一个是inode区，存放inode所包含的信息。每个inode的大小，一般是128字节或256字节。通常情况下不需要关注单个inode的大小，而是需要重点关注【inode总数】。inode总数在格式化的时候就确定了。
+```
+
+df -i
+
+* 查看硬盘分区的inode总和已使用情况；
+
+**特有现象**
+
+```
+由于inode号码与文件名分离，导致一些unix/linux系统具备以下几种特有的现象
+```
+
+* 文件名包含特殊字符，可能无法正常删除。这时直接删除inode，能够直到删除文件的作用；
+* 移动文件或重命名文件，只是改变文件名，不影响inode号码；
+* 打开一个文件以后，系统就以inode号码来识别这个文件，不再考虑文件名；
+
+```
+这种情况使得软件更新变得简单，可以在不关闭软件的情况下进行更新，不需要重启。因为系统通过inode号码识别运行中的文件，不通过文件名，更新的时候，新版文件以同样的文件名，生成一个新的inode，不会影响到运行中的文件。等到下一次运行这个软件的时候，文件名就自动指向新版文件，旧版文件的inode则被回收。 ？？？
+```
+
+**inode耗尽故障**
+
+```
+由于硬盘分区的inode总数在格式化后就已经固定，而每个文件必须有一个inode，因此就有可能发生inode节点用光，但硬盘空间还剩不少，却无法创建新文件。同时这也是一种攻击的方式，所以一些公用的文件系统就要做磁盘限额，以防止影响到系统的正常运行。
+
+至于修复，很简单，只要找出哪些大量占用i节点的文件删除就可以了。
+```
+
+
+
+### 基础命令
+
+* 命令提示符：[root@bogon ~]# 
+
+  root: 当前用户
+
+  @ 前面是用户名，后面是所在的域
+
+  bogon: 主机名 hostname
+
+  ~ 当前用户家目录
+
+  #($)：指示你所具有的权限，# 超级用户   $ 普通用户
+
+  whoami 查看当前用户
+
+  hostname 查看主机名
+
+* 一些简单命令
+
+  * date
+  * ls
+    * 列出当前目录下的文件和目录
+
+* 命令的参数
+
+  * 参数是写在命令之后的一些补充选项，命令和参数之间有空格隔开；
+
+    command parameters
+
+  * 参数里可以包含多个参数，由空格隔开；
+
+  * 短参数（一个字母）
+
+    * command -p
+
+    * 一次加好几个短参数，用空格隔开
+
+      command -p -a -T -c
+
+    * 多个短参数可以合并在一起
+
+      command -paTc
+
+  * 字母的大小写有区别
+
+  * 长参数(多个字母)
+
+    * command --parameter
+
+    * 组合使用短参数和长参数
+
+      command -paTc --paramter1 --parameter2
+
+  * 赋值
+    * command -p 10
+    * command --parameter=10
+  * 
+
+* 查找命令
+
+  * tab 补全
+
+    * 按一次提示
+    * 按两次列出所有
+
+  * 命令历史记录
+
+    * 向上键
+
+    * 向下键
+
+    * ctrl + r   查找使用过的命令
+
+    * history 列出之前使用过的所有命令
+
+      ！+ 行号： 执行相应命令
+
+* 常用快捷键
+
+  * ctrl + l
+  * ctrl + d:  给终端传递EOF(End Of File, 文件结束符)
+  * ctrl + a: 光标跳到开头
+  * ctrl + e：跳到末尾
+  * ctrl + u: 删除所有在光标左侧的命令字符
+  * ctrl + k：删除所有在光标右侧的命令字符
+  * ctrl + w:  删除光标左侧的一个“单词”，用空格隔开的字符串
+  * ctrl + y:   粘贴之前用ctrl+u, ctrl+k, ctrl+w等删除的字符串，类似 “剪切-粘贴”
+
+* 文件组织，pwd和whick命令
+
+  * linux的目录组织
+
+    * 一切皆文件
+
+    * 根目录  /
+
+    * 目录结构
+
+      /usr/bin
+
+    * 直属子目录
+
+      * bin
+
+        二进制文件，可执行文件，包含了会被所有用户使用的可执行程序
+
+      * boot
+
+        linux启动密切相关的文件
+
+      * dev
+
+        device, 包含外设，它里面的子目录，每一个对应一个外设
+
+      * etc
+
+        包含系统的配置文件
+
+        这下面放的都是一堆零零碎碎的东西，就叫etc好了，是历史遗留。
+
+      * home
+
+      * lib
+
+        库
+
+        包含被程序所调用的库文件，如.so结尾的文件，windows下 .dll
+
+      * media
+
+        可移动外设(usb, sd卡，dvd)插入电脑时，linux可以让我们通过media的子目录来访问这些外设中的内容
+
+      * mnt
+
+        挂载，类似media目录，一般用于临时挂载
+
+      * opt
+
+        optional application software package的缩写
+
+        用于安装多数第三方软件和插件
+
+      * root
+
+      * sbin
+
+        系统二进制文件，比bin目录多了一个前缀system
+
+        包含系统级的重要可执行文件
+
+      * srv
+
+        service
+
+        包含一些网络服务启动之后所需要取用的数据
+
+      * tmp
+
+        临时的
+
+        普通用户和程序存放临时文件的地方
+
+      * usr
+
+        unix software resource的缩写
+
+        表示“unix操作系统软件资源” (类似etc, 也是历史遗留的命名)
+
+        usr是Linux最庞大目录之一，类似 windows中的 c:\Windows和c:\program files的集合
+
+        usr目录里安装了大部分用户要调用的程序
+
+      * var
+
+        通常包含程序的数据，比如log文件
+
+  * which
+
+    which pwd ：pwd命令对应的可执行程序位于哪个(/usr/bin)目录中
+
+* 目录相关命令
+
+  * ls
+
+    * list缩写，列出文件和目录 
+
+      ls --color=auto    开启颜色
+
+      蓝色  -  目录
+
+      绿色  -  可执行文件
+
+      红色  -  压缩文件
+
+      浅蓝色 - 链接文件
+
+      灰色  -  其他文件
+
+    * ls -a
+
+      显示所有文件和目录，包括隐藏的
+
+      . 表示当前目录
+
+      .. 表示上一级目录
+
+    * ls -l
+
+      详细信息列表，每一个文件或目录都有对应的一行信息
+
+      drwxr-xr-x. 2 oscar oscar   6 jul 14 04:22 Destop
+
+      文件权限： drwxr-xr-x 之类
+
+      链接的数目： 2 ，1之类
+
+      文件或目录所有者名称： oscar
+
+      文件所在群组
+
+      文件大小：6，   单位 byte
+
+      最近一次修改时间
+
+      目录或文件形式
+
+    * -h  
+
+      human readable
+
+    * -t
+
+      按修改时间倒序
+
+  * cd
+
+    change dirctory
+
+  * du
+
+    * disk usage缩写，磁盘占用
+
+    * 显示目录包含的文件大小，相比ls -l，du命令统计的才是真正的文件大小
+
+    * du -h
+
+    * du -a 显示目录和文件的大小
+
+    * du -s 只显示总计大小
+
+      du -sh
+
+* 文件操纵
+
+  * cat 和 less
+
+    * cat 一次性显示文件的所有内容
+
+      -n 显示行号
+
+      cat -n boot.log
+
+    * less 分页显示文件内容
+
+      空格键：下一页
+
+      回车键：下一行
+
+      b键：后退一页
+
+      y键：后退一行
+
+      q键：中止less命令
+
+    * less高级功能
+
+      * = 号 :  显示你在文件中的位置
+
+        boot.log lines 1-23/155 byte 1296/8539 15%  (press RETURN)
+
+        1-23 当前屏幕行号范围
+
+        155 整个文件共155行
+
+      * h键：显示帮助文档    q键：退出帮助文件
+
+      * /    进入搜索模式
+
+        n键：跳到下一个符合项目
+
+        N键：跳到上一个符合项目
+
+        正则表达式可以用在搜索内容中
+
+  * head和tail，显示文件的开头和结尾
+
+    * head 显示文件开头，默认显示10行
+
+      head -n 20 boot.log 开头前20行
+
+    * tail 显示文件结尾，默认显示10行
+
+      * tail -n 5 boot.log 结尾5行
+
+      * -f   实时追踪文件更新
+
+        默认每1秒检查文件内容更新
+
+        可以通过-s指定，tail -f -s 4 boot.log
+
+  * touch
+
+    * touch new_file_1 new_file_2 new_file_3
+
+    * 创建一个空白文件
+
+  * mkdir 
+
+    * 创建一个目录
+    * -p 递归创建目录结构
+
+* 文件的复制、移动、删除和链接
+
+  * cp
+
+    * 拷贝文件或目录
+
+    * cp new_file new_file_copy
+
+    * cp new_file one/   复制后具有相同名称
+
+    * cp new_file one/new_file_copy  复制后不具有相同名称
+
+    * -r
+
+      拷贝目录
+
+      cp -r one one_copy
+
+    * 通配符 *
+
+      cp *.txt folder 把当前目录下所有的txt文件拷贝到 folder 目录中
+
+  * mv
+
+    * 移动文件或目录
+    * 重命名文件或目录，不需要额外参数
+    * 通配符 *
+
+  * rm 
+
+    * 终端中没有回收站，rm删除的文件一般比较难恢复
+    * -i 确认是否删除
+    * -f  强制删除
+    * -r 递归删除目录及子文件
+    * rm -rf  /
+
+  * ln
+
+    * 创建链接，相当于windows中快捷方式
+
+    * 硬链接
+
+      使文件1和文件2指向相同的inode，因此修改文件1或文件2，修改的是相同的一块内容
+
+      只能创建指向文件的硬链接，不能创建指向目录的
+
+      ln file1 file2  创建file1的一个硬链接file2
+
+      ls -i  显示inode
+
+      对于硬链接，删除任意一方的文件，共同指向的文件内容并不会从硬盘上被删除
+
+    * 软链接
+
+      * -s 
+
+        ln -s file1 file2
+
+        <img src="linux.assets/image-20210302072206309.png" alt="image-20210302072206309" style="zoom:33%;" />
+
+      * file2这个软链接只是file1的一个快捷方式，它指向的是file1，所以显示的是file1的内容
+
+      * 如果删除file1，file2变成死文件
+
+      * 软链接可以指向目录，硬链接不行
+
+
+### 用户和权限
+
+**用户管理**
+
+* sudo：暂时成为root
+
+  sudo command
+
+  sudo su：一直成为root
+
+  su(centos) 切换root, 在个人用户家目录
+
+  su -   切换root，且定位root家目录
+
+* useradd
+
+  * useradd username
+  * passwd username
+
+* userdel
+
+  * userdel username   只删除用户，不删除用户的家目录
+  * userdel -r username 连同家目录一并删除
+
+**群组管理**
+
+Linux中每一个用户都属于一个特定的群组，如果不主动设置，默认会创建一个与用户名一样的群组。
+
+* groupadd
+
+  * groupadd groupname
+
+* usermod
+
+  * usermod -g groupname username  将用户添加到一个群组，删除原群组
+  * usermod -G g1,g2,g3 username  将用户添加到多个群组，删除原群组
+  * uesrmod -aG groupname username 将用户添加到指定群组，不删除原群组
+
+* groups
+
+  * 当前用户所在群组
+
+  * groups username  用户属于哪个群组
+
+* groupdel groupname 删除群组
+
+* chown
+
+  * change owner   改变文件所有者，需要root运行
+
+  * chown username filename   只改变文件所有者，不改变群组
+
+  * chown username:groupname filename  改变文件所有者和群组
+
+  * -R  递归改变目录的所有子目录和子文件
+
+    chown -R username:groupname foldername
+
+* chgrp
+
+  * change group  改变文件所在群组
+  * chgrp groupname filename
+
+* chmod   修改访问权限
+
+  <img src="linux.assets/image-20210303064602782.png" alt="image-20210303064602782" style="zoom:33%;" />
+
+  * 如上
+    * 属性：表示 文件 or 目录
+    * 所有者：表示所有者对此文件的访问权限
+    * 群组用户：表示文件所属群组用户对于此文件的访问权限
+    * 其他用户：表示除前面用户外的其他用户对此文件的访问权限
+
+  * linux系统里，文件和目录都有一列权限属性，指明谁有读的权利、写的权利、运行的权利；
+
+  * 文件访问权限符
+
+    d,  r,  w,  l,  x， .
+
+    * d, directory，表示“目录”，  - 表示文件，或没有相应权限
+    * r，read，读权限
+    * w，write, 写权限
+    * l，链接
+    * x，execute，执行/运行，如果x在一个目录上，表示可以打开此目录看其子目录和子文件
+    * .   点表示“SELinux安全标签”，有点表示启用的SELinux安全标签
+
+  * 解析  -rw-rw-r--
+
+    * 第一个 - 表示普通文件
+    * 第二个 rw- 表示文件的所有者对文件有读写权限，没有运行权限(普通文件，默认没有可执行权限)
+    * 第二个 rw- 表示文件所在群组的用户对文件有读写权限，没有运行权限
+    * 第三个 r-- 表示其他用户只有读权限，不能写，不能执行
+
+  * chmod 不需要root用户才能执行，只要是文件所有者，就可以使用chmod修改文件的访问权限
+
+    * chmod的绝对用法，用数字来分配权限
+      * r  4,  w  2,  x  1
+      * chmod 777 filename
+      * 777 ，表示文件的所有者、群组用户、其他用户都有读、写和运行的权限
+    * chmod的相对用法，用字母来分配权限
+      * u: user 所有者， g: group 群组用户， o: other 其他用户，a:all 所有用户
+      * +号 表示添加相应权限， -号 表示去除相应权限， =号 表示分配权限
+      * chmod u+rx filename, 文件filename的所有者增加读和执行权限
+      * -R 递归修改文件访问权限
+
+### 软件安装
+
+**软件包**
+
+* 一个软件包(package)其实是软件的所有文件的压缩包
+* 二进制形式的，包含了安装软件的所有指令
+* 在red hat一族里，软件包的后缀是 .rpm  （Red Hat Package Manager）
+
+**依赖关系**
+
+* 一个软件经常需要使用其他程序或者其他程序的片段(称之为【库】)；
+* 往往依赖关系还有下层依赖关系，环环相扣；
+
+**软件仓库**
+
+* linux的软件包都存放在一个地方，称之为软件仓库(repository)；
+
+* 修改软件仓库
+
+  /etc/yum.repos.d/CentOS-Base.repo
+
+  https://www.centos.org/download/mirrors
+
+**yum**
+
+* centos中默认的包管理工具，Red Hat一族
+* yum update/upgrade  更新软件包
+  
+  * 不加特定软件，更新所有软件
+* yum search  搜索软件包
+
+* yum install  安装软件包
+
+  yum install emacs
+
+* yum remove  删除软件包
+
+  yum remove emacs
+
+**rpm包**
+
+* 有些软件包在软件仓库中没有，需要去官网下载 rpm包，使用rpm命令安装
+
+* rpm -i *.rpm  安装软件包
+
+  yum localinstall *.rpm
+
+* rpm -e *.rpm  卸载软件包
+
+  yum remove *.rpm
+
+### Linux手册
+
+**man**
+
+* yum install -y man-pages   安装
+
+* mandb  更新
+
+* man command
+
+  man ls
+
+* q键退出手册
+
+* 区域
+
+  * name
+
+  * synopsis  列出命令所有可能的方法
+
+    []  表示可选
+
+    ...  表示可以有多个选项或多个目录名
+
+    粗体 表示要原封不动的输入
+
+    下划线 表示用实际内容替换
+
+    a|b  a或b
+
+  * description
+
+**apropos**
+
+* apropos sound  列出所有使用手册中有sound关键字的命令
+
+**其他**
+
+* -h或--help参数
+
+  * 显示帮助文档
+  * 没有man命令显示的详细，但是也很有用，易于阅读
+  * yum -h
+
+* whatis   列出man命令显示的手册的开头部分，就是概述命令的作用
+
+  whatis ls
+
+### 查找文件
+
+* locate  filename
+  * locate命令是搜索【包含】关键字的所有文件和目录
+  * 文件数据库
+    * locate命令不会对实际的整个硬盘进行查找，而是在文件数据库里查找记录
+    * 文件数据库：包含文件列表和文件位置
+    * linux系统一般每天更新一次文件数据库，所以刚创建的文件可能未被收录进文件数据库
+    * updatedb 强制系统立即更新文件数据库，只能root执行
+
+* find
+
+  * 不在文件数据库中查找记录，遍历实际硬盘
+
+  * find 何处 何物 做什么 
+
+    * 何物：必须的，要查找什么，可以根据文件名、大小、最近访问时间等进行查找
+
+    * 何处：指定在哪个目录中查找，包括子目录，默认在当前目录及其子目录查找
+
+    * 做什么：对找到的文件做一定的操作(后续处理)
+
+    * find /home -name file_name
+
+    * find / -size +10M, M k G   没有加减号表示等于
+
+    * find / -name *.txt -atime -7, 最近7天访问过的
+
+    * 操作查找结果
+
+      * 默认find命令只列出查找到的文件
+
+      * 可以将其用格式化的方式打印出来
+
+      * 使用 -printf 参数
+
+        find -name "*.txt" -printf "%p - %u\n"
+
+      * -delete
+
+      * -exec
+
+        find /home/one -name "*.txt" -exec chmod 600 {} \;
+
+        ｛｝用查找到的文件替代
+
+           \;   必须的结尾
+
+
+
+## 进阶知识
+
+### 数据处理
+
+* grep  筛选数据
+
+  * grep path /etc/profile   列出这个文件中包含path的行，如果path中包含空格需要使用 “”
+
+  * -i  忽略大小写，默认区分大小写
+
+    grep -i path /etc/profile
+
+  * -n  显示行号
+
+    grep -in path /etc/profile
+
+  * -v   显示文本不在的行
+
+    grep -v path /etc/profile
+
+  * -r   递归查找
+
+  * 配合正则表达式
+
+    <img src="linux.assets/image-20210304070838494.png" alt="image-20210304070838494" style="zoom: 25%;" />
+
+    -E  使用正则表达式，可以不加
+
+    grep -E ^Path /etc/profile  匹配行首
+
+    grep -E [a-zA-Z]  /etc/profile  包含在a至z，A至Z之间的任意字母的行
+
+* sort
+
+  * sort name.txt   按字母顺序排序
+  * -o
+    * 将排序后的内容写入新文件
+    * sort -o name_sorted.txt name.txt
+  * -r  倒序
+  * -R  随机排序
+  * -n  对数字排序
+
+* wc 
+
+  * word cound，文件的统计，可以统计行数、字符数、字节数等
+  * wc name.txt
+  * -l  只统计行
+  * -w  只统计单词
+  * -c  统计字节数
+
+* uniq  
+
+  * 删除文件中的重复内容，只能将连续的重复行变为一行
+
+* cut
+
+  * -c  根据字符数剪切
+
+    cut -c 2-4 name.txt
+
+  * -d 按指定符号分隔
+
+    cut -d , -f 1 notes.csv
+
+* 流
+
+* 管道
+
+  <img src="linux.assets/image-20210305065241283.png" alt="image-20210305065241283" style="zoom:25%;" />
+
+  * 把两个命令连起来使用，一个命令的输出作为另一个命令的输入，pipeline
+
+  * ｜ 管理符号，建立命令管道
+
+  * 实践
+
+    ```
+    cut -d, -f 1 notes.csv | sort
+    
+    du | sort -nr | head
+    ```
+
+    
+
+  * 
+
+* 重定向
+
+  <img src="linux.assets/image-20210305061551935.png" alt="image-20210305061551935" style="zoom: 25%;" />
+
+  * 把本来要显示在终端的命令结果，输送到文件中或作为其他命令的输入(命令的链接或叫命令的管道)
+
+  * ">"和">>"  重定向到文件
+
+    ```
+    cut -d, -f 1 notes.csv > students.txt
+    ```
+
+    * ">" 如果此文件不存在则新建，如果存在则覆盖
+    * ">>" 重定向到文件末尾，追加，不会覆盖
+
+  * stdin, stdout, stderr
+
+    <img src="linux.assets/image-20210305063431382.png" alt="image-20210305063431382" style="zoom:25%;" />
+
+    * stdout: 标准输出，指终端输出的信息，不包含错误信息
+
+    * stderr: 指终端输出的错误信息
+
+    * stdin: 标准输入流，指输入至程序的数据(通常是文件)。
+
+      <img src="linux.assets/image-20210305063632339.png" alt="image-20210305063632339" style="zoom:25%;" />
+
+    * 2>
+      * 标准错误输出
+      * cat noe_exist_file.txt 2> err.log
+    * 2>>
+      * 将标准错误输出重定向到文件末尾
+    * 2>&1
+      * 将标准输入和标准错误输出到一个文件
+      * cat not_exist_file.txt > results.txt 2>&1
+
+  * <
+
+    * 从文件中读取
+    * cat < notes.csv   与 cat notes.csv 运行结果一致
+
+  * <<
+
+    * 从键盘读取
+    * sort -n << END
+
+  * 
+
+### 进程和系统监测
+
+* w
+
+  * 都有谁，在做什么？
+
+    * 快速了解系统中目前有哪些用户登录着，以及他们在干什么
+
+      ```
+      []$ w
+      07:26:44 up 24 min, 2 users, load average: 0.77, 0.01, 0.09
+      USER   TTY   FROM      LOGIN@   IDLE   JCPU    PCPU   WHAT
+      oscar  :0     :0       07:02   ?xdm?   1:01    0.20s   /usr/libexec/g
+      oscar  pts/0  :0       07:17    0.00s  0.14s   0.08s   w
+      ```
+
+    * load average: 0.77, 0.01, 0.09
+
+      * 1分钟之内的平均负载
+      * 5分钟之内的平均负载
+      * 15分钟之内的平均负载
+      * 负载指运行的进程数，单核处理器负载超过1，双核处理器负载超过2则过高
+
+    * USER：用户名(登录名)
+
+    * TTY:  登录的终端名称
+
+      * :0 指本地，就是目前所在的这个图形终端
+      * pts表示伪终端从属
+
+    * FROM:  用户连接到的服务器的IP地址(或主机名)
+
+    * LOGIN@:  用户连接系统的时间
+
+    * IDLE:  用户有多久没活跃了(没运行任何命令)
+
+    * JCPU:  该终端所有相关的进程使用的CPU的时间，当进程结束停止计时，开始新的进程则重新计时
+
+      进程是加载到内存中运行的程序，一个程序可能产生多个进程
+
+    * PCPU: 表示CPU执行当前程序所消耗的时间，当前进程是在what列显示的程序
+
+    * WHAT：当下用户正运行的程序
+
+  * who:  当前哪些用户登录
+
+* ps和top查看进程
+
+  * ps 默认列出当前用户进程
+
+    ```
+    ps
+    
+    PID TTY TIME CMD
+    ```
+
+    * 进程的静态列表
+
+    * PID 进程号
+
+    * TTY 哪个终端
+
+    * TIME 运行了多久
+
+    * CMD 哪个程序
+
+    * ps -ef 
+
+      * 列出所有用户在所有终端的所有进程
+
+        ```
+        ps -ef
+        
+        UID     PID    PPID    C    STIME    TTY    TIME     CMD
+        用户id  进程号  父进程号
+        ```
+
+        
+
+    * ps -efH 树状列出
+
+    * ps -u 用户名： 列出此用户运行的进程 
+
+    * ps -aux:  通过CPU和内存使用来过滤进程
+
+      * ps -aux | less
+      * ps -aux --sort -pcpu | less  根据cpu使用率降序排列
+      * ps -aux --sort -pmem | less   根据内存使用率降序排列
+      * ps -aux --sort -pcpu, +pmem | head  将cpu和内存参数合并到一起，并通过管道显示前10个结果
+
+    * pstree 以树形结构显示进程 
+
+  * top
+
+* 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
