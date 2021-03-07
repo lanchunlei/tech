@@ -872,21 +872,23 @@ Linux中每一个用户都属于一个特定的群组，如果不主动设置，
       * 标准错误输出
       * cat noe_exist_file.txt 2> err.log
     * 2>>
+      
       * 将标准错误输出重定向到文件末尾
     * 2>&1
+      
       * 将标准输入和标准错误输出到一个文件
-      * cat not_exist_file.txt > results.txt 2>&1
-
-  * <
-
+    * cat not_exist_file.txt > results.txt 2>&1
+  
+* <
+  
     * 从文件中读取
-    * cat < notes.csv   与 cat notes.csv 运行结果一致
-
-  * <<
-
+  * cat < notes.csv   与 cat notes.csv 运行结果一致
+  
+* <<
+  
     * 从键盘读取
-    * sort -n << END
-
+  * sort -n << END
+  
   * 
 
 ### 进程和系统监测
@@ -982,6 +984,297 @@ Linux中每一个用户都属于一个特定的群组，如果不主动设置，
     * pstree 以树形结构显示进程 
 
   * top
+
+    * 进程的动态列表
+
+    * 详细信息
+
+    ```
+    top - 09:23:22 up 1 min,  1 user,  load average: 2.26, 0.81, 0.29
+    Tasks: 167 total,   1 running, 166 sleeping,   0 stopped,   0 zombie
+    %Cpu(s):  5.9 us, 11.8 sy,  0.0 ni, 82.4 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+    KiB Mem :  1863012 total,    79384 free,  1593060 used,   190568 buff/cache
+    KiB Swap:  2097148 total,  2091508 free,     5640 used.    77804 avail Mem 
+    
+       PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND                         
+      1952 root      20   0  162124   2232   1528 R  6.2  0.1   0:00.02 top                             
+         1 root      20   0  128028   3704   1220 S  0.0  0.2   0:01.13 systemd                         
+         2 root      20   0       0      0      0 S  0.0  0.0   0:00.00 kthreadd                        
+         3 root      20   0       0      0      0 S  0.0  0.0   0:00.00 kworker/0:0                     
+         4 root       0 -20       0      0      0 S  0.0  0.0   0:00.00 kworker/0:0H                    
+         5 root      20   0       0      0      0 S  0.0  0.0   0:00.02 kworker/u256:0                  
+         6 root      20   0       0      0      0 S  0.0  0.0   0:00.19 ksoftirqd/0                     
+         7 root      rt   0       0      0      0 S  0.0  0.0   0:00.00 migration/0                     
+         8 root      20   0       0      0      0 S  0.0  0.0   0:00.00 rcu_bh                          
+         9 root      20   0       0      0      0 S  0.0  0.0   0:00.31 rcu_sched                       
+    ```
+
+    * 说明
+
+      * top: 相当于动态的w命令
+      * Tasks: 运行的任务：total, running, sleeping, stopped,  zombie（僵死）
+      * %Cpu:
+      * KiB Mem：
+      * KiB Swap: 交换分区
+      * 进程列表，默认按照使用处理器的比率排列
+
+    * 键盘按键
+
+      * q 退出
+      * h 帮助文档
+      * b
+      * f/F:  在进程列表中添加或删除某些列
+      * u 按照用户过滤显示
+      * k 结束某个进程
+      * s 改变页面刷新时间，默认是每隔3秒
+
+    * glances
+
+      更优秀的监控软件
+
+* 停止进程
+
+  * ctrl + c: 停止终端中正在运行的进程
+  * kill pid
+    * kill 8461 1706 8561
+    * kill -9 pid   强制结束
+    * killall nginx
+
+* 关闭系统
+
+  * halt
+  * reboot
+  * shutdown
+  * poweroff
+
+* 进程
+
+  <img src="linux.assets/image-20210307103339402.png" alt="image-20210307103339402" style="zoom: 33%;" />
+
+  * &   后台运行
+
+    * cp file.txt file-copy.txt &
+    * find / -name *.txt &
+    * find / -name *.txt > find_output.txt &
+    * find / -name *.txt > find_output.txt 2>&1
+
+  * nohup
+
+    * &符号虽然常用，但是其后台进程与终端关联，一旦终端关闭或者用户登出，进程就自动结束
+    * nohup java -jar bkm.jar > bkm.log 2>&1
+
+  * ctrl＋ｚ 转到后台，并暂停运行
+
+  * bg 使进程转到后台
+
+    * 假如命令已经在后台，并且暂停着，bg命令会将其状态改为运行
+    * 不加参数，默认作用于最近的一个后台进程
+    * bg %2 作用于编号为2的后台进程 (进程转入后台之后，会显示它在当前终端下的后台进程编号)
+
+  * 5种常见的进程状态
+
+    * 运行(正在运行或运行队列中等待)
+
+      状态码R, runable（on run queue）
+
+    * 中断(休眠中，受阻)
+
+      当某个条件形成后或接受到信号时，则脱离该状态
+
+      状态码 S
+
+    * 不可中断
+
+      进程不响应系统异步信息，即使用kill命令也不能使其中断
+
+      状态码D，uninterruptible sleep
+
+    * 僵死
+
+      进程已终止，但进程描述符依然存在，直到父进程调用wait4()系统函数后将进程释放
+
+      状态码Z，a defunct(zombie) process
+
+    * 停止
+
+      进程收到 SIGSTOP SIGSTP SIGTIN SIGTOU等停止信号停止运行
+
+      状态码T，traced or stopped
+
+  * jobs
+
+    * 显示当前终端里的后台进程状态
+
+  * fg
+
+    * 使进程转为前台运行
+
+* 定时和延时
+
+  * date
+
+    * 显示当前时间
+    * date 10121430  修改当前系统时间
+
+  * at
+
+    * 延时执行一个程序，只能让程序执行一次
+
+    * ```
+      at 22:10 12/10/19  # 月/日/年
+      at> touch file.txt
+      at> <EOT>          # ctrl+d
+      job 1 at Sun Sep 1 22:10:00 2019
+      ```
+
+    * 在指定间隔之后执行程序
+
+      ```
+      at now +10minutes
+      ```
+
+    * atq 列出正等待执行的at任务
+
+    * atm 删除正在等待执行的at任务
+
+  * && 和 || 符号 和 ;
+
+    * &&: && 号前的命令执行成功，才会执行后面的命令
+    * ||:  ||号前的命令执行失败，才会执行后面的命令
+    * ;:  不论分号前的命令执行是否成功，都执行分号后的命令
+
+  * crontab
+
+    * 定时执行程序，at命令只能执行命令一次，crontab可以重复执行命令
+
+    * crontab命令用来读取和修改crontab文件
+
+    * crontab文件包含了你要定时执行的程序列表和执行时刻
+
+    * crontab 和 cron
+
+      * crontab 用于修改crontab文件
+      * cron 用于实际执行定时的程序
+
+    * 参数
+
+      * -l:  显示crontab文件
+
+      * -e：修改crontab文件
+
+        ```
+        编辑的格式：m h dom mon dow command
+        m: minutes
+        h: hour
+        dom: day of month,表示“一个月的哪一天”
+        mon: month
+        dow: day of week, 星期几
+        command: 需要定时执行的命令
+        
+        * 表示此位置空
+        
+        例：
+        10 22 * * * touch ~/file.txt # 每天22:10在家目录下创建file.txt文件，路径最好用绝对路径
+        ```
+
+        <img src="linux.assets/image-20210308063118704.png" alt="image-20210308063118704" style="zoom: 50%;" />
+
+      * -r:  删除crontab文件
+
+* 文件压缩和解压
+
+  * tar 
+
+    * 将多个文件归档
+
+    * 打包：将多个文件变成一个总的文件，这个总的文件通常称为archive(存档、归档)
+
+    * 压缩：将一个大文件通过某些压缩算法变成一个小文件
+
+    * 首先，用tar命令将多个文件归档为一个总的文件(archive)；然后用gzip命令将archive压缩为更小的文件
+
+      <img src="linux.assets/image-20210308064500097.png" alt="image-20210308064500097" style="zoom:33%;" />
+
+    * 用法
+
+      * -cvf 创建一个tar归档
+
+        tar -cvf sorting.tar sorting/
+
+        tar -cvf archive.tar file1.txt file2.txt file3.txt
+
+        c: create
+
+        v：verbose, 表示冗余，会显示操作的细节
+
+        f:  file，表示文件，指归档文件
+
+      * -tf 显示归档里面的内容，并不解压
+
+        ```
+        tar -tf sorting.tar
+        sorting/
+        sortinig/QuickSort.java
+        sorting/MergeSort.java
+        ```
+
+      * -rvf 追加文件到归档
+
+        tar -rvf archive.tar file_extra.txt
+
+      * -xvf  解开归档
+
+        -cvf 的反操作
+
+        x: extract，提取、取出
+
+        tar -xvf sorting.tar
+
+  * gzip(常用) 和 bzip2（压缩效率高，但更耗时）
+
+    * .tar.gz: 用gzip命令压缩后的文件后缀名
+    * gzip sorting.tar 压缩
+    * gunzip sorting.tar.gz  解压
+
+  * **tar 直接压缩并归档**
+
+    * tar -zcvf sorting.tar.gz sorting
+    * tar -zxvf sorting.tar.gz
+
+  * zcat zmore zless
+
+    * zcat sorting.tar.gz
+
+  * zip unzip  
+
+    * zip -r sorting.zip sorting   # -r 表示递归
+    * unzip sorting.zip
+
+* 编译安装软件
+
+  **下载源代码 -> 解压压缩包 -> 配置 -> 编译 -> 安装**
+
+  * 找安装包 -> 官网 -> .rpm（redhat package manager）
+
+  * 编译安装
+
+    * 编译就是将程序的源代码转换成可执行文件的过程
+
+    * 实践 htop安装
+
+      * 官网下载 htop.tar.gz
+
+      * tar -zxvf htop.tar.gz  # 解压
+
+      * cd      ./configure
+
+        error
+
+        yum install -y ncruses-devel
+
+      * make && make install
+
+  * 
 
 * 
 
