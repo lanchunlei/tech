@@ -828,7 +828,7 @@ Linux中每一个用户都属于一个特定的群组，如果不主动设置，
 
   * -d 按指定符号分隔
 
-    cut -d , -f 1 notes.csv  # -f指定需要提取的字段编号
+    cut -d , -f 1 notes.csv  # -f指定需要提取的字段编号 （以逗号分隔的第一个区域）
 
 * 流
 
@@ -888,6 +888,14 @@ Linux中每一个用户都属于一个特定的群组，如果不主动设置，
       * 将标准输入和标准错误输出到一个文件
       
     * cat not_exist_file.txt > results.txt 2>&1
+    
+    * /dev/null 
+    
+      ```
+      /dev/null 是一个特殊的设备文件，它丢弃一切写入其中的数据，可以将它视为黑洞，它第效于只写文件，写入其中的所有内容都会消失，尝试从中读取或输出不会有任何结果
+      ```
+    
+      * /dev/null 通常被用于丢弃不需要的输出流，或作为用于输入流的空文件，这些操作通常由重定向完成，任何你想丢弃的数据都可以写入其中
   
 * <
   
@@ -1722,8 +1730,6 @@ Linux中每一个用户都属于一个特定的群组，如果不主动设置，
       TX packages: 4821
       ```
 
-      
-
   * 新版
 
     ```
@@ -1777,37 +1783,614 @@ Linux中每一个用户都属于一个特定的群组，如果不主动设置，
 
   
 
-  
-
-  
-
-  
-
-* 
-
-  
-
-* 
-
 ## shell
 
+### shell的分类
+
+```
+不同的终端命令行对应不同的shell
+```
+
+* sh: Borune Shell， 目前所有shell的祖先
+
+* Bash:  Borune Agin Shell, sh进阶版，比sh更优秀，是大多数Linux发行版和macOS操作系统的默认shell
+
+* ksh、csh、tsh、zsh 。。。
+
+  <img src="linux.assets/image-20210316061706764.png" alt="image-20210316061706764" style="zoom:33%;" />
+
+### shell可以做什么
+
+* shell是管理命令行的程序
+* 以rc结尾的文件
+  * 以rc结尾的多为配置文件
+  * 里面包含了软件运行前会去读取并运行的那些初始化命令
+* 
+
+### 第一个shell
+
+vim test.sh
+
+```
+#!/bin/bash
+
+ls
+```
+
+* .sh是一种约定俗成的命名惯例
+
+* 在写一个脚本时，第一要做的就是指定要使用哪种shell来解析/运行它，因为sh ksh bash等shell的语法有所不同
+
+  * #! 被称作sha-bang或shebang，类unix操作系统会解析其后面字符，以其后面的字符解析命令
+  * #!/bin/bash 如果不指定，默认以当前shell执行
+
+* “#”  注释 
+
+* ./test.sh  运行shell
+
+* chmod +x test.sh  添加可执行权限
+
+* 调试
+
+  * bash -x testt.sh
+  * 参数 -x 表示以调试模式运行
+  * shell会把脚本文件运行的细节打印出来
+
+* 创建自己的命令
+
+  * PATH环境变量
+
+    * PATH是Linux的一个系统变量，包含系统里所有可以被直接执行的程序的路径
+
+    * echo $PATH
+
+      ```
+      /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
+      ```
+
+    * cp test.sh /usr/bin 后可直接运行 test.sh
+
+### 变量
+
+* 定义变量
+
+  ```
+  vim variable.sh
+  
+  #!/bin/sh
+  
+  message='Hello World' # 等号两边不要加空格
+  echo $message
+  ```
+
+  * 引号
+
+    * 单引号：如果变量被包含在单引号里，变量不会被解析，会忽略被其括起来的所有字符
+
+    * 双引号：双引号会忽略大多数特殊字符，但不包括：$  `  \
+
+    * 反引号：要求shell执行被它括起来的内容
+
+      ```
+      #!/bin/bash
+      
+      message=`pwd`
+      echo "You are in the directory $message"
+      
+      
+      You are in the directory /root
+      ```
+
+* read
+
+  * read命令读取到的文件(终端输入)会立即被储存在一个变量里
+
+    ```
+    #!/bin/bash
+    read name
+    echo "Hello $name !"
+    ```
+
+  * read命令可以一冷性给多个变量赋值
+
+    ```
+    #!/bin/bash
+    read firstname lastname
+    echo "Hello $firstname $lastname !"
+    ```
+
+  * -p 显示提示信息
+
+    ```
+    read -p 'Please enter your name : ' name
+    ```
+
+  * -n 限制字符数目
+
+    ```
+    read -p 'please enter your name (5 characters max) : ' -n 5 name
+    ```
+
+  * -t  限制用户的输入时间(单位：秒)
+
+    ```
+    read -p 'please enter the code to defuse the bomb (you have 5 seconds) : ' -t 5 code
+    echo -e "\nBoom !" # -e 解析 \n
+    ```
+
+  * -s  隐藏输入内容(如密码)
+
+* 数学运算
+
+  * 在bash中，所有的变量都是字符串
+
+  * let
+
+    ```
+    #!/bin/bash
+    
+    let "a = 2"
+    let "b = 5"
+    let "c = a + b"
+    
+    echo "c = $c"
+    ```
+
+  * bc  小数运算
+
+* 环境变量
+
+  * shell的环境变量可以被此种shell的任意脚本程序使用，可称为全局变量
+  * env 显示环境变量
+  * export 自定义环境变量
+
+* 参数变量
+
+  * ./variable.sh 参数1 参数2 参数3
+
+    | 变量 | 含义               |
+    | ---- | ------------------ |
+    | $#   | 参数的数目         |
+    | $0   | 被运行的脚本的名称 |
+    | $1   | 第一个参数         |
+    | $2   | 第二个参数         |
+    | $N   | 第N个参数          |
+
+    ```
+    #!/bin/bash
+    
+    echo "you are executed $0, there are $# parameters"
+    echo "the first parameter is $1"
+    
+    ./variable.sh param1 param2 param3 param4
+    you are executed ./variable.sh, there are 4 parameters
+    the first parameter is param1
+    ```
+
+  * shift 命令“挪移”参数，常用在循环中，使得参数一个接一个地被处理
+
+### 数组
+
+```
+#!/bin/bash
+
+array=('value0' 'value1' 'value2')
+echo ${array[2]}
+```
+
+* 数组可以包含任意大小的元素数目，数组的编号不需要是连续的
+
+### 条件
+
+* if
+
+  ```
+  if [ 条件测试 ] 	 # 条件两边必须空一格
+  then
+  	做这个
+  fi 					# 表示if语句结束
+  ```
+
+  * 在shell语言中，“等于”是用一个等号 = 来表示的，但是shell中用两个等号表示等于的判断也是可以的
+
+    ```
+    #!/bin/bash
+    
+    name1="lan1"
+    name2="lan2"
+    
+    if [ $name1=$name2 ]
+    then
+    	echo "You two have the same name !"
+    fi
+    ```
+
+  * else
+
+    ```
+    if [ 条件 ]
+    then
+    	做这个
+    else
+    	做那个
+    fi
+    ```
+
+  * elseif
+
+    ```
+    if [ 条件1 ]
+    then
+    	做1
+    elseif [ 条件2 ]
+    then
+    	做2
+    elseif [ 条件3 ]
+    then
+    	做3
+    else
+    	做其它
+    fi
+    ```
+
+* 判断字符串
+
+  | 条件                 | 意义                 |
+  | -------------------- | -------------------- |
+  | $string1 = $string2  | =，shell大小写敏感   |
+  | $string1 != $string2 | !=                   |
+  | -z $string           | 字符串string是否为空 |
+  | -n $string           | 字符串是否不为空     |
+
+* 判断数字
+
+  | 条件            | 意义 |
+  | --------------- | ---- |
+  | $num1 -eq $num2 | =    |
+  | $num1 -ne $num2 | !=   |
+  | $num1 -lt $num2 | <    |
+  | $num1 -le $num2 | <=   |
+  | $num1 -gt $num2 | >    |
+  | $num1 -ge $num2 | >=   |
+
+* 判断文件
+
+  | 条件              | 意义                       |
+  | ----------------- | -------------------------- |
+  | -e $file          | 文件是否存在               |
+  | -d $file          | 文件是否是一个目录         |
+  | -f $file          | 文件是否是一个文件         |
+  | -L $file          | 文件是否是一个符号链接文件 |
+  | -r $file          | 文件是否可读               |
+  | -w $file          | 文件是否可写               |
+  | -x $file          | 文件是否可执行             |
+  | $file1 -nt $file2 | 文件file1是否比file2更新   |
+  | $file1 -ot $file2 | 文件file1是否比file2更旧   |
+
+* && ||
+
+  * && 逻辑与
+  * || 逻辑或
+
+* case
+
+  ```
+  case $1 in
+  	"Matthew")
+  		echo "Hello Matthew !"
+  		;;   # 类似break
+  	"Mark")
+  		echo "Hello Mark !"
+  		;;
+  	"Luke")
+  		echo "Hello Luke !"
+  	"John")
+  		echo "Hello John!"
+  		;;
+  	*)	# 相当于 else
+  		echo "Sorry, I do not know you."
+  		;;
+  esac	# case结束
+  ```
+
+  * case中或用一个 ｜
+
+### 循环
+
+* while
+
+  ```
+  while [ 条件 ]
+  do
+  	做某些事
+  done
+  ```
+
+  ```
+  #!/bin/bash
+  
+  while [ -z $response ] || [ $response != 'yes' ]
+  do
+  	read -p "Say yes : " response		# 变量在此定义
+  done	
+  ```
+
+* until
+
+  ```
+  【util 条件为真时跳出循环】
+  
+  until [ "$response" = 'yes' ]
+  do
+  	read -p 'Say yes : ' response
+  done
+  ```
+
+* for
+
+  ```
+  for 变量 in '值1' '值2' '值3' ... '值n'
+  do
+  	做某些事
+  done
+  ```
+
+  ```
+  for i in `seq 1 10`
+  do 
+  	echo $i
+  done
+  ```
 
 
 
+###　函数
+
+* 函数定义
+
+  ```
+  函数名 () {	# 括号里不加任何参数
+  	函数体
+  }
+  
+  function 函数名 {
+  	函数体
+  }
+  ```
+
+  * **函数名后的括号不加任何参数**
+  * 函数的完整定义必须在调用之前
+
+* 传递参数
+
+```
+#!/bin/bash
+
+print_something () {
+	echo Hello $1
+}
+
+print_something Matthew
+print_something Mark
+```
 
 
 
+* 变量作用范围
+
+  * 默认地，一个变量是全局的
+  * 要定义一个局部变量，需要用local关键字
+
+* 返回值
+
+  * 没有返回值
+  * 可以返回状态，表示是否成功，使用return关键字
+
+  ```
+  #!/bin/bash
+  
+  print_sonething () {
+  	echo Hello $1
+  	return 1
+  }
+  
+  print print_something Hike
+  
+  echo Return value of previous function is $?
+  ```
+
+  **$? 函数返回状态**
+
+* 重载命令
+
+  ```
+  #!/bin/bash
+  
+  ls () {
+  	command ls -lh  # command关键字用于重载
+  }
+  
+  ls
+  ```
 
 
 
+### 统计练习
 
 
 
+### systemd
+
+```
+systemd是Linux系统工具，用来启动守护进程。
+systemd设计目标：为系统的启动和管理提供一套完整的解决方案
+```
 
 
 
+* 进程
+
+  * 一个运行起来的程序称为进程 
+  * 守护(daemon)进程
+    * 不与任何终端关联，无论用户身份如何，都在后台运行
+    * 这些进程的父进程是PID为1的进程，PID为1的进程只在系统关闭时才会被销毁
+    * 守护进程的名字通常会在最后有一个d，表示daemon, 如 systemd, httpd, smbd等
+
+* Linux初始化进程服务：systemd & systemv
+
+  | 作用                               | systemd命令                             | systemv命令          |
+  | ---------------------------------- | --------------------------------------- | -------------------- |
+  | 启动服务                           | systemctl start toto                    | service toto start   |
+  | 停止服务                           | systemctl stop toto                     | service toto stop    |
+  | 重启服务                           | systemctl restart toto                  | service toto restart |
+  | 查看服务状态                       | systemctl status toto                   | service toto status  |
+  | 重载配置文件(不停止服务)           | systemctl reload toto                   | service toto reload  |
+  | 开机自启动服务                     | systemctl enable toto                   | chkconfig toto on    |
+  | 开机不自启动服务                   | systemctl disable toto                  | chkconfig toto off   |
+  | 查看服务是否开机自动启动           | systemctl is-enabled toto               | chkconfig toto       |
+  | 查看各个级别下服务的启动和禁用情况 | systemctl list-unit-file --type=service | chkconfig --list     |
+
+  * systemd 的 PID 为 1
+  * systemd并不是一个命令，它包含了一组命令，涉及到系统管理的方方面面
+  * systemd是基于事件的，可以使进程【并行】启动(systemv是串行启动的，只有前一个进程启动完，才会启动后一个进程)
+  * systemd可以重启因错误而停止的进程，管理任务计划、系统日志、外设等
+  * **systemctl**
+    * systemctl用于管理unit，unit泛指它可以操作的任何对象，包括：服务、挂载、外设等等
+    * 每个unit都有一个配置文件，告诉systemd怎么启动这个Unit
+  * systemv使用run level(运行级别)来管理不同的进程组，systemd用target替换了systemv的运行级别
+    * 启动计算机的时候，需要大量的Unit，如果每一次启动，都要一一写明本次启动需要哪些Unit，显示非常不方便，systemd的解决方案就是Target
+    * target是指“目标”，简单来说是多个unit构成的一个组
+    * 
+  * journalctl 管理日志
+    * 默认地，journalctl按时间顺序显示由systemd管理的所有日志
+  * systemd-analyze 系统启动耗时
+    * systemd-analyze blame 每个unit启动耗时
+
+* 安装Apache
+
+  ```
+  在Centos等RedHat一族中，Apache程序的名字叫 httpd。
+  ```
+
+  * yum install httpd
+  * systemctl start httpd
+  * systemctl stop httpd
+  * 查看开放端口  firewall-cmd --list-ports
+    * firewall-cmd -zone=public --add-port=80/tcp --permanent
+    * firewall-cmd reload  重载配置的防火墙策略
+
+### SELinux
+
+* Security-Enchanced Linux 安全增强型Linux
+
+* SELinux的“双重保险”
+
+  | 模式                         | 含义                     |
+  | ---------------------------- | ------------------------ |
+  | 域限制(Domain Limitation)    | 对服务程序的功能进行限制 |
+  | 安全上下文(Security Context) | 对文件资源的访问进行限制 |
+
+* 防火墙和SELinux
+
+  * 防火墙就像“防盗门”，用于抵御外部的危险
+  * SELinux就像“保险柜”，用于保护内部的资源
+
+* SELinux的三种配置模式
+
+  **/etc/selinux/config**
+
+  | 配置模式   | 含义                                         |
+  | ---------- | -------------------------------------------- |
+  | enforcing  | 强制启用安全策略模式，将拦截服务的不合法请求 |
+  | permissive | 遇到服务越权访问时，只发出警告而不强制拦截   |
+  | disabled   | 对于越权的行为不警告也不拦截                 |
+
+* sestatus
+
+  * 查看安全状态
+
+* setenforce 0（1） 暂时
+
+* getenforce
+
+* semanage
+
+  * 管理 SELinux，用于管理SELinux的策略
+
+  * semanage [选项] [文件]
+
+  * 安装：yum provides semanage
+
+  * 参数
+
+    | 参数 | 功能 |
+    | ---- | ---- |
+    | -l   | 查询 |
+    | -a   | 添加 |
+    | -m   | 修改 |
+    | -d   | 删除 |
+
+  * semanage fcontext -a -t httpd_sys_content_t /home/web/*
 
 
+### IP分配
 
+* DHCP动态分配IP
+  * 动态主机配置协议，是一种基于UDP协议且仅限于在局域网内部使用的网络协议
+  * 主要用于局域网环境或者存在较多办公设备的局域网环境中，为局域网内部的设备或网络供应商自动分配IP地址等参数
+  * DHCP可以自动管理主机的IP地址、子网掩码、网关、DNS地址等参数
+* 静态分配IP
+  * gateway netmask dns
 
+### 虚拟主机
+
+* 独立服务器
+* 虚拟主机
+* VPS
+* ECS
+  * 弹性计算服务，也就是一般的**云服务器**，整合了计算、存储、网络，能够做到弹性伸缩的计算服务
+
+### HTTPS
+
+* HTTPS协议
+
+  * 超文本传输**安全**协议，HTTP加上SSL/TLS协议构建的可以加密传输、身份认证的网络协议
+
+  * SSL/TLS
+    * SSL:  Secure Socket Layer，安全的套接字层；
+    * TLS:  Transport Layer Security，传输层安全
+    * TLS可以被看作SSL的新版本，在SSL3.0版的基础上，进行了改进，目前使用的其实都是TLS，不过沿用传统，一般也可以继续叫SSL
+  * 为什么需要HTTPS
+    * HTTP是明文信息，不安全
+    * HTTPS可以确保所有经过服务器传输的数据包都是经过加密的
+    * 使得假冒的服务器无法冒充真实的服务器
+  * CA
+    * Certificate Authorities，证书(公证)权威(机构)
+    * CA用于为客户端确认所连接的网站的服务器提供的证书是否合法
+    * 数字证书是经过CA认证的公钥，其内容不止包含公钥
+
+  * **公钥、私钥、数字签名、数字证书详解**
+
+    ```
+    1、鲍勃有两把钥匙，一把是公钥，另一把是私钥
+    2、鲍勃把公钥送给他的朋友们----帕蒂、道格、苏珊----每人一把
+    3、苏珊要给鲍勃写一封保密的信。她写完后用鲍勃的公钥加密，就可以达到保密的效果
+    4、鲍勃收信后，用私钥解密，就看到了信件内容。这里要强调的是，只要鲍勃的私钥不泄露，这封信就是安全的，即使落在别人手里，也无法解密
+    5、鲍勃给苏珊回信，决定采用"数字签名"。他写完后先用Hash函数，生成信件的摘要（digest）
+    6、然后，鲍勃使用私钥，对这个摘要加密，生成"数字签名"（signature）
+    7、鲍勃将这个签名，附在信件下面，一起发给苏珊
+    8、苏珊收信后，取下数字签名，用鲍勃的公钥解密，得到信件的摘要。由此证明，这封信确实是鲍勃发出的
+    9、苏珊再对信件本身使用Hash函数，将得到的结果，与上一步得到的摘要进行对比。如果两者一致，就证明这封信未被修改过
+    10、复杂的情况出现了。道格想欺骗苏珊，他偷偷使用了苏珊的电脑，用自己的公钥换走了鲍勃的公钥。此时，苏珊实际拥有的是道格的公钥，但是还以为这是鲍勃的公钥。因此，道格就可以冒充鲍勃，用自己的私钥做成"数字签名"，写信给苏珊，让苏珊用假的鲍勃公钥进行解密
+    11、后来，苏珊感觉不对劲，发现自己无法确定公钥是否真的属于鲍勃。她想到了一个办法，要求鲍勃去找"证书中心"（certificate authority，简称CA），为公钥做认证。证书中心用自己的私钥，对鲍勃的公钥和一些相关信息一起加密，生成"数字证书"（Digital Certificate）
+    12、鲍勃拿到数字证书以后，就可以放心了。以后再给苏珊写信，只要在签名的同时，再附上数字证书就行了
+    13、苏珊收信后，用CA的公钥解开数字证书，就可以拿到鲍勃真实的公钥了，然后就能证明"数字签名"是否真的是鲍勃签的
+    
+    ```
+
+    
+
+  * 配置HTTPS
+
+* 
 
